@@ -3,7 +3,6 @@
 import * as React from "react"
 import Link from "next/link"
 import {
-  AnimatePresence,
   MotionConfig,
   motion,
   useReducedMotion,
@@ -97,26 +96,25 @@ function Arrow() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Showcase: app frame, template tabs, scroll tilt                     */
+/* Intro video: full content width, scroll scale-in, foggy bottom      */
 /* ------------------------------------------------------------------ */
 
-export function HeroShowcase({
-  templates,
-  total,
-}: {
-  templates: { slug: string; name: string; node: React.ReactNode }[]
-  total: string
-}) {
+export function HeroVideo({ src }: { src: string }) {
   const ref = React.useRef<HTMLDivElement>(null)
+  const videoRef = React.useRef<HTMLVideoElement>(null)
   const reduce = useReducedMotion()
-  const [active, setActive] = React.useState(templates[0].slug)
-  const current = templates.find((t) => t.slug === active) ?? templates[0]
 
-  // Tilted back while entering the viewport, flat by the time it's well in view.
+  // Respect "reduce motion": no autoplaying loop, show controls instead.
+  React.useEffect(() => {
+    if (reduce) videoRef.current?.pause()
+  }, [reduce])
+
+  // Grows from slightly smaller to full size as it scrolls into view. 2D only:
+  // a 3D tilt breaks the masked backdrop blur of the fog in Chromium.
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start end", "start 25%"] })
   const progress = useSpring(scrollYProgress, { stiffness: 120, damping: 24, mass: 0.4 })
-  const rotateX = useTransform(progress, [0, 1], reduce ? [0, 0] : [14, 0])
-  const scale = useTransform(progress, [0, 1], reduce ? [1, 1] : [0.94, 1])
+  const scale = useTransform(progress, [0, 1], reduce ? [1, 1] : [0.92, 1])
+  const y = useTransform(progress, [0, 1], reduce ? [0, 0] : [40, 0])
 
   return (
     <MotionConfig reducedMotion="user">
@@ -125,72 +123,28 @@ export function HeroShowcase({
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.9, delay: 0.45, ease }}
-        className="[perspective:1400px]"
       >
-        <motion.div style={{ rotateX, scale, transformOrigin: "50% 0%" }} className="will-change-transform">
-          <div className="rounded-2xl border bg-background/60 p-1.5 [mask-image:linear-gradient(to_bottom,black_62%,transparent)] shadow-[0_30px_80px_-30px_rgb(0_0_0/0.25)] ring-1 ring-black/[0.02] backdrop-blur dark:shadow-[0_30px_80px_-30px_rgb(0_0_0/0.8)] dark:ring-white/[0.03]">
-            <div className="overflow-hidden rounded-xl border bg-muted/50 dark:bg-muted/30">
-              {/* toolbar */}
-              <div className="flex items-center gap-3 border-b bg-background/70 px-2 py-1.5 sm:px-3">
-                <div className="hidden gap-1.5 pl-1 sm:flex" aria-hidden>
-                  <span className="size-2.5 rounded-full bg-border" />
-                  <span className="size-2.5 rounded-full bg-border" />
-                  <span className="size-2.5 rounded-full bg-border" />
-                </div>
-                <div role="tablist" aria-label="Invoice template" className="-my-0.5 flex min-w-0 overflow-x-auto [scrollbar-width:none] sm:ml-2">
-                  {templates.map((t) => {
-                    const selected = t.slug === active
-                    return (
-                      <button
-                        key={t.slug}
-                        type="button"
-                        role="tab"
-                        aria-selected={selected}
-                        onClick={() => setActive(t.slug)}
-                        className={cn(
-                          "relative isolate shrink-0 rounded-md px-2.5 py-1 text-xs whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-                          selected ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-                        )}
-                      >
-                        {selected && (
-                          <motion.span
-                            layoutId="template-tab"
-                            className="absolute inset-0 -z-10 rounded-md border bg-background shadow-xs"
-                            transition={{ type: "spring", bounce: 0.18, duration: 0.45 }}
-                          />
-                        )}
-                        {t.name}
-                      </button>
-                    )
-                  })}
-                </div>
-                <span className="ml-auto hidden shrink-0 items-center gap-1.5 rounded-md border bg-background px-2 py-1 text-xs text-muted-foreground md:inline-flex">
-                  <span className="relative flex size-1.5">
-                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500/60" />
-                    <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500" />
-                  </span>
-                  Paid · {total}
-                </span>
-              </div>
+        <motion.div style={{ scale, y, transformOrigin: "50% 0%" }} className="relative">
+          <div className="relative overflow-hidden rounded-2xl border bg-background/60 p-1.5 shadow-[0_30px_80px_-30px_rgb(0_0_0/0.25)] ring-1 ring-black/[0.02] dark:shadow-[0_30px_80px_-30px_rgb(0_0_0/0.8)] dark:ring-white/[0.03]">
+            <video
+              ref={videoRef}
+              src={src}
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="auto"
+              controls={!!reduce}
+              aria-label="Prettybill product intro: making a GST invoice and sharing it"
+              className="block aspect-[4/3] w-full rounded-xl bg-muted object-cover"
+            />
+          </div>
 
-              {/* canvas */}
-              <div className="relative h-[420px] overflow-hidden bg-[radial-gradient(var(--border)_1px,transparent_1px)] [background-size:16px_16px] sm:h-[600px]">
-                <AnimatePresence mode="popLayout" initial={false}>
-                  <motion.div
-                    key={current.slug}
-                    initial={{ opacity: 0, y: 14, filter: "blur(6px)" }}
-                    animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                    exit={{ opacity: 0, y: -8, filter: "blur(6px)" }}
-                    transition={{ duration: 0.45, ease }}
-                    className="mx-auto mt-6 w-[88%] max-w-[600px] overflow-hidden rounded-md shadow-[0_0_0_1px_rgb(0_0_0/0.06),0_20px_40px_-20px_rgb(0_0_0/0.3)] sm:mt-10"
-                    role="tabpanel"
-                    aria-label={`${current.name} template preview`}
-                  >
-                    {current.node}
-                  </motion.div>
-                </AnimatePresence>
-              </div>
-            </div>
+          {/* fog: progressive blur + fade into the page, covering the frame's bottom edge too */}
+          <div aria-hidden className="pointer-events-none absolute -inset-x-6 -bottom-10 h-[calc(40%+2.5rem)]">
+            <div className="absolute inset-0 backdrop-blur-[2px] [mask-image:linear-gradient(to_top,black,transparent)]" />
+            <div className="absolute inset-0 backdrop-blur-md [mask-image:linear-gradient(to_top,black_15%,transparent_75%)]" />
+            <div className="absolute inset-0 bg-linear-to-t from-background via-background/75 to-transparent" />
           </div>
         </motion.div>
       </motion.div>

@@ -33,8 +33,8 @@ export function Navbar() {
         aria-label="Main"
         data-scrolled={scrolled || undefined}
         className={cn(
-          "mx-auto mt-0 max-w-5xl rounded-none border border-transparent px-3 transition-[max-width,margin,background-color,border-color,border-radius,box-shadow] duration-500 ease-[cubic-bezier(0.2,0,0,1)] sm:px-4",
-          "data-scrolled:mt-2 data-scrolled:max-w-3xl data-scrolled:rounded-xl data-scrolled:border-border data-scrolled:bg-background/70 data-scrolled:shadow-[0_8px_30px_-12px_rgb(0_0_0/0.12)] data-scrolled:backdrop-blur-lg",
+          "mx-auto mt-0 max-w-6xl rounded-none border border-transparent px-3 transition-[max-width,margin,background-color,border-color,border-radius,box-shadow] duration-500 ease-[cubic-bezier(0.2,0,0,1)] sm:px-4",
+          "data-scrolled:mt-2 data-scrolled:max-w-4xl data-scrolled:rounded-xl data-scrolled:border-border data-scrolled:bg-background/70 data-scrolled:shadow-[0_8px_30px_-12px_rgb(0_0_0/0.12)] data-scrolled:backdrop-blur-lg",
           open && "rounded-xl border-border bg-background/95 backdrop-blur-lg"
         )}
       >
@@ -64,7 +64,7 @@ export function Navbar() {
             <ThemeToggle className="hidden md:inline-flex" />
             <Link
               href="/login"
-              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "hidden text-[13px] md:inline-flex")}
+              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "hidden text-[13px] md:inline-flex hover:bg-neutral-200/20 hover:underline dark:hover:bg-neutral-800")}
               {...trackAttrs("login_click", "navbar")}
             >
               Log in

@@ -1,16 +1,19 @@
 import type { ReactNode } from "react"
 import { cn } from "cn"
 
-import { formatINR, invoiceTotals, sampleInvoice, upiLink, type SampleInvoice } from "@/lib/landing/invoice"
+import { formatINR, invoiceTotals, sampleInvoice, taxLines, upiLink, type SampleInvoice } from "@/lib/landing/invoice"
 import { qrPath } from "@/lib/landing/qr"
+
+import { StandardTemplate } from "./invoice-standard"
 
 /**
  * Renders the sample invoice in one of the template designs.
  *
  * Everything inside is sized in `em`, and the root font size is a fraction of
  * the container width (`cqw`), so the same markup is a crisp thumbnail at
- * 260px and a full-size preview at 720px. Server-only: keeps `qrcode` out of
- * the client bundle. Client components receive the rendered element as a prop.
+ * 260px and a full-size preview at 720px. Pure render: works on the server
+ * (landing, which keeps `qrcode` out of its client bundle) and in the client
+ * (the dashboard's live editor).
  */
 
 type Font = "sans" | "serif" | "mono"
@@ -25,7 +28,11 @@ type Design = {
   table: "rule" | "zebra" | "boxed" | "minimal"
 }
 
-const designs: Record<string, Design | "receipt"> = {
+/** Default, recommended template. */
+export const DEFAULT_TEMPLATE = "standard"
+
+const designs: Record<string, Design | "receipt" | "standard"> = {
+  standard: "standard",
   "minimal-mono": { font: "sans", accent: "#111111", tint: "#f4f4f5", header: "plain", table: "rule" },
   "studio-bold": { font: "sans", accent: "#18181b", tint: "#f4f4f5", header: "band", table: "zebra" },
   "classic-ledger": { font: "serif", accent: "#1f4d3a", tint: "#eef4f0", header: "ledger", table: "boxed" },
@@ -42,7 +49,7 @@ const fontFamily: Record<Font, string> = {
   mono: "var(--font-geist-mono), ui-monospace, monospace",
 }
 
-const qr = qrPath(upiLink(sampleInvoice))
+type Qr = ReturnType<typeof qrPath>
 const numeric = "tabular-nums [font-feature-settings:'tnum']"
 
 export function InvoiceDocument({
@@ -60,19 +67,23 @@ export function InvoiceDocument({
   decorative?: boolean
   className?: string
 }) {
-  const design = designs[template] ?? designs["minimal-mono"]
+  const design = designs[template] ?? designs[DEFAULT_TEMPLATE]
   const totals = invoiceTotals(invoice)
-  const label = `Sample invoice ${invoice.number} from ${invoice.from.name} to ${invoice.billTo.name}, total ${formatINR(totals.total)}, marked paid`
+  const qr = qrPath(upiLink(invoice))
+  const paid = invoice.kind === "receipt" || invoice.status === "PAID"
+  const label = `${invoice.kind === "receipt" ? "Receipt" : "Invoice"} ${invoice.number} from ${invoice.from.name} to ${invoice.billTo.name}, total ${formatINR(totals.total)}, ${paid ? "paid" : "due"}`
 
   return (
     <div
       className={cn("@container w-full", className)}
       {...(decorative ? { "aria-hidden": true } : { role: "img", "aria-label": label })}
     >
-      {design === "receipt" ? (
-        <Receipt invoice={invoice} totals={totals} fill={fill} />
+      {design === "standard" ? (
+        <StandardTemplate invoice={invoice} totals={totals} fill={fill} qr={qr} />
+      ) : design === "receipt" ? (
+        <Receipt invoice={invoice} totals={totals} fill={fill} qr={qr} />
       ) : (
-        <A4 invoice={invoice} totals={totals} design={design} fill={fill} />
+        <A4 invoice={invoice} totals={totals} design={design} fill={fill} qr={qr} />
       )}
     </div>
   )
@@ -84,7 +95,7 @@ type Totals = ReturnType<typeof invoiceTotals>
 /* A4 layouts                                                          */
 /* ------------------------------------------------------------------ */
 
-function A4({ invoice, totals, design, fill }: { invoice: SampleInvoice; totals: Totals; design: Design; fill: boolean }) {
+function A4({ invoice, totals, design, fill, qr }: { invoice: SampleInvoice; totals: Totals; design: Design; fill: boolean; qr: Qr }) {
   const { accent, tint, header, table } = design
   const bleedHeader = header === "band" || header === "stripe"
 
@@ -138,7 +149,7 @@ function A4({ invoice, totals, design, fill }: { invoice: SampleInvoice; totals:
           </div>
           {totals.lines.map((line, i) => (
             <div
-              key={line.name}
+              key={line.id ?? `${i}-${line.name}`}
               className={cn(
                 "grid grid-cols-[1fr_5em_2.6em_5.6em_6em] gap-x-[0.8em] px-[0.7em] py-[0.7em]",
                 (table === "rule" || table === "minimal") && "border-b border-[#e6e8ed] px-0",
@@ -158,10 +169,12 @@ function A4({ invoice, totals, design, fill }: { invoice: SampleInvoice; totals:
 
         {/* Payment + totals */}
         <div className="mt-[1.8em] grid grid-cols-[1fr_15em] items-start gap-[2em]">
-          <PayBlock invoice={invoice} accent={accent} tint={tint} />
+          {invoice.display?.showQr !== false ? <PayBlock invoice={invoice} accent={accent} tint={tint} qr={qr} /> : <Notes invoice={invoice} />}
           <div className={cn("relative", numeric)}>
             <Row label="Subtotal" value={formatINR(totals.subtotal)} />
-            <Row label={`${invoice.tax.type} ${invoice.tax.rate}%`} value={formatINR(totals.tax)} />
+            {taxLines(invoice, totals.tax).map((t) => (
+              <Row key={t.label} label={t.label} value={formatINR(t.amount)} />
+            ))}
             <div
               className="mt-[0.5em] flex items-baseline justify-between border-t-2 pt-[0.6em]"
               style={{ borderColor: accent }}
@@ -315,19 +328,31 @@ function Row({ label, value }: { label: string; value: string }) {
   )
 }
 
-function PayBlock({ invoice, accent, tint }: { invoice: SampleInvoice; accent: string; tint: string }) {
+function Notes({ invoice }: { invoice: SampleInvoice }) {
+  if (!invoice.notes) return <div />
+  return (
+    <div className="text-[0.85em] text-[#5b6170]">
+      <p className="mb-[0.3em] text-[0.9em] font-semibold tracking-[0.08em] text-[#16181d] uppercase">Notes</p>
+      <p className="whitespace-pre-line">{invoice.notes}</p>
+    </div>
+  )
+}
+
+function PayBlock({ invoice, accent, tint, qr }: { invoice: SampleInvoice; accent: string; tint: string; qr: Qr }) {
   return (
     <div className="flex items-center gap-[1em] rounded-[0.4em] p-[0.9em]" style={{ backgroundColor: tint }}>
-      <QrCode className="size-[6.2em] shrink-0 rounded-[0.2em] bg-white p-[0.3em]" />
+      <QrCode qr={qr} className="size-[6.2em] shrink-0 rounded-[0.2em] bg-white p-[0.3em]" />
       <div className="min-w-0 text-[0.85em]">
         <p className="font-semibold">Scan to pay with UPI</p>
         <p className="truncate text-[#5b6170]">{invoice.upi.id}</p>
-        <span
-          className="mt-[0.7em] inline-block rounded-[0.35em] px-[1em] py-[0.4em] font-semibold text-white"
-          style={{ backgroundColor: accent, boxShadow: "0 0.18em 0 rgba(0,0,0,0.28)" }}
-        >
-          Pay now
-        </span>
+        {invoice.display?.payNow !== false && (
+          <span
+            className="mt-[0.7em] inline-block rounded-[0.35em] px-[1em] py-[0.4em] font-semibold text-white"
+            style={{ backgroundColor: accent, boxShadow: "0 0.18em 0 rgba(0,0,0,0.28)" }}
+          >
+            Pay now
+          </span>
+        )}
       </div>
     </div>
   )
@@ -357,7 +382,7 @@ function Monogram({ name, bg, fg, round }: { name: string; bg: string; fg: strin
   )
 }
 
-function QrCode({ className }: { className?: string }) {
+function QrCode({ qr, className }: { qr: Qr; className?: string }) {
   return (
     <svg viewBox={`0 0 ${qr.size} ${qr.size}`} shapeRendering="crispEdges" className={className}>
       <path d={qr.d} fill="#111" />
@@ -369,7 +394,7 @@ function QrCode({ className }: { className?: string }) {
 /* 80mm thermal receipt                                               */
 /* ------------------------------------------------------------------ */
 
-function Receipt({ invoice, totals, fill }: { invoice: SampleInvoice; totals: Totals; fill: boolean }) {
+function Receipt({ invoice, totals, fill, qr }: { invoice: SampleInvoice; totals: Totals; fill: boolean; qr: Qr }) {
   const dashed = "border-t border-dashed border-[#9aa0ab]"
   return (
     <div className={cn("flex justify-center bg-[#eceef2] py-[6cqw]", fill && "min-h-[141.4cqw]")}>
@@ -390,8 +415,8 @@ function Receipt({ invoice, totals, fill }: { invoice: SampleInvoice; totals: To
           <p>To: {invoice.billTo.name}</p>
         </div>
         <div className={cn("mt-[0.6em] pt-[0.6em] tabular-nums", dashed)}>
-          {totals.lines.map((line) => (
-            <div key={line.name} className="mb-[0.4em]">
+          {totals.lines.map((line, i) => (
+            <div key={line.id ?? `${i}-${line.name}`} className="mb-[0.4em]">
               <p>{line.name}</p>
               <div className="flex justify-between text-[#5b6170]">
                 <span>
@@ -407,12 +432,12 @@ function Receipt({ invoice, totals, fill }: { invoice: SampleInvoice; totals: To
             <span>Subtotal</span>
             <span>{formatINR(totals.subtotal)}</span>
           </div>
-          <div className="flex justify-between">
-            <span>
-              {invoice.tax.type} {invoice.tax.rate}%
-            </span>
-            <span>{formatINR(totals.tax)}</span>
-          </div>
+          {taxLines(invoice, totals.tax).map((t) => (
+            <div key={t.label} className="flex justify-between">
+              <span>{t.label}</span>
+              <span>{formatINR(t.amount)}</span>
+            </div>
+          ))}
           <div className="mt-[0.3em] flex justify-between text-[1.2em] font-bold">
             <span>TOTAL</span>
             <span>{formatINR(totals.total)}</span>
@@ -420,8 +445,12 @@ function Receipt({ invoice, totals, fill }: { invoice: SampleInvoice; totals: To
           {invoice.status === "PAID" && <PaidStamp className="top-[-0.6em] right-auto left-[42%] mt-0" />}
         </div>
         <div className={cn("mt-[0.7em] flex flex-col items-center pt-[0.9em] text-center text-[0.85em]", dashed)}>
-          <QrCode className="size-[8em]" />
-          <p className="mt-[0.4em]">Scan to pay · {invoice.upi.id}</p>
+          {invoice.display?.showQr !== false && (
+            <>
+              <QrCode qr={qr} className="size-[8em]" />
+              <p className="mt-[0.4em]">Scan to pay · {invoice.upi.id}</p>
+            </>
+          )}
           <p className="mt-[0.6em] text-[#7a8090]">Thank you, visit again</p>
         </div>
       </article>

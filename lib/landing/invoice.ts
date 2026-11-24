@@ -1,6 +1,7 @@
 import raw from "./sample-invoice.json"
 
 export type InvoiceItem = {
+  id?: string
   name: string
   sac: string
   qty: number
@@ -12,13 +13,19 @@ export type SampleInvoice = {
   issueDate: string
   dueDate: string
   currency: "INR"
-  from: { name: string; city: string; state: string; stateCode: string; gstin: string }
-  billTo: { name: string; city: string; state: string; stateCode: string }
+  from: { name: string; city: string; state: string; stateCode: string; gstin: string; address?: string[]; email?: string }
+  billTo: { name: string; city: string; state: string; stateCode: string; address?: string[]; email?: string }
   placeOfSupply: string
   items: InvoiceItem[]
   tax: { type: "IGST" | "CGST+SGST"; rate: number }
   upi: { id: string; payeeName: string }
   status: "PAID" | "DUE"
+  /** What the rendered invoice shows. All default to on. */
+  display?: { showQr?: boolean; payNow?: boolean }
+  notes?: string
+  /** Invoice asks for payment; receipt confirms it. Defaults to invoice. */
+  kind?: "invoice" | "receipt"
+  receipt?: { number: string; method: string; paidDate: string }
 }
 
 export const sampleInvoice = raw as SampleInvoice
@@ -35,6 +42,18 @@ export function invoiceTotals(invoice: SampleInvoice) {
   const subtotal = lines.reduce((sum, line) => sum + line.amount, 0)
   const tax = Math.round((subtotal * invoice.tax.rate) / 100)
   return { lines, subtotal, tax, total: subtotal + tax }
+}
+
+/** Tax rows as printed: one IGST row, or CGST + SGST at half the rate each. */
+export function taxLines(invoice: SampleInvoice, tax: number) {
+  const { type, rate } = invoice.tax
+  if (type === "IGST") return [{ label: `IGST ${rate}%`, amount: tax }]
+  const half = rate / 2
+  const cgst = Math.round(tax / 2)
+  return [
+    { label: `CGST ${half}%`, amount: cgst },
+    { label: `SGST ${half}%`, amount: tax - cgst },
+  ]
 }
 
 /** UPI deep link encoded in the invoice QR (NPCI `upi://pay` format). */

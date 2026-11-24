@@ -6,20 +6,15 @@
 export const DOCS_URL = "https://prettybill.dev"
 
 export const navLinks = [
+  { label: "Dashboard", href: "/dashboard" },
   { label: "Templates", href: "/templates" },
   { label: "Pricing", href: "/pricing" },
   { label: "Developers", href: DOCS_URL },
-] as const
-
-/** Template tabs in the hero preview. All render the same sample invoice. */
-export const heroTemplates = [
-  { slug: "minimal-mono", name: "Minimal Mono" },
-  { slug: "classic-ledger", name: "Classic Ledger" },
-  { slug: "frame", name: "Frame" },
-  { slug: "cafe-receipt", name: "Café Receipt" },
+  // Where signed-in users create and manage invoices. Route not built yet.
 ] as const
 
 export const footerLinks = [
+  { label: "Developers", href: DOCS_URL },
   { label: "Templates", href: "/templates" },
   { label: "Pricing", href: "/pricing" },
   { label: "GST calculator", href: "/tools/gst-calculator" },

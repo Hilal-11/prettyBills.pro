@@ -19,7 +19,7 @@ export function Footer() {
         <div className="absolute inset-x-[-50%] bottom-0 h-[200%] origin-bottom [transform:rotateX(60deg)] bg-[linear-gradient(to_right,var(--border)_1px,transparent_1px),linear-gradient(to_bottom,var(--border)_1px,transparent_1px)] [background-size:40px_40px] opacity-60" />
       </div>
 
-      <div className="mx-auto flex max-w-5xl flex-col gap-8 px-4 py-12 sm:px-6">
+      <div className="mx-auto flex max-w-6xl flex-col gap-8 px-4 py-12 sm:px-6">
         <div className="flex flex-col justify-between gap-6 sm:flex-row sm:items-center">
           <div>
             <Logo />
