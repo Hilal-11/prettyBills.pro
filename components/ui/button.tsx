@@ -7,7 +7,9 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/80",
+        // Blue gradient with a hard, solid shadow. Same shape and sizes as stock.
+        default:
+          "border-brand-deep bg-linear-to-b from-brand to-brand-deep text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.16),0_2px_0_var(--brand-shadow),0_6px_14px_-6px_rgb(13_65_225/0.5)] hover:from-[#1a6dff] hover:to-[#0f47eb] focus-visible:border-brand-shadow focus-visible:ring-brand/40 active:shadow-[inset_0_1px_0_rgb(255_255_255/0.1),0_1px_0_var(--brand-shadow)]",
         outline:
           "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
         secondary:

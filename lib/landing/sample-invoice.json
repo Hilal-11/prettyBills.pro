@@ -1,5 +1,5 @@
 {
-  "_note": "Hero sample invoice. Shared by the hero preview, every template thumbnail and the Open Graph image. GSTIN is a placeholder; replace before launch. The UPI ID uses a non-existent handle on purpose so the sample QR cannot receive money.",
+  "_note": "Hero sample invoice. Shared by the hero preview, every template thumbnail and the Open Graph image. GSTIN is a placeholder; replace before launch. The UPI ID uses a non-existent handle on purpose so the sample QR cannot receive money. Emails use the reserved .example domain.",
   "number": "INV/25-26/014",
   "issueDate": "14 Nov 2025",
   "dueDate": "28 Nov 2025",
@@ -9,23 +9,54 @@
     "city": "Srinagar",
     "state": "Jammu & Kashmir",
     "stateCode": "01",
-    "gstin": "01ABCDE1234F1Z5"
+    "gstin": "01ABCDE1234F1Z5",
+    "address": [
+      "12 Residency Road, Lal Chowk",
+      "Srinagar, Jammu & Kashmir 190001",
+      "India"
+    ],
+    "email": "billing@rahuldesign.example"
   },
   "billTo": {
     "name": "Lakeview Café",
     "city": "Bengaluru",
     "state": "Karnataka",
-    "stateCode": "29"
+    "stateCode": "29",
+    "address": [
+      "80 Feet Road, Indiranagar",
+      "Bengaluru, Karnataka 560038",
+      "India"
+    ],
+    "email": "accounts@lakeviewcafe.example"
   },
   "placeOfSupply": "Karnataka (29)",
   "items": [
-    { "name": "Logo design", "sac": "998391", "qty": 1, "rate": 15000 },
-    { "name": "Menu card design", "sac": "998391", "qty": 2, "rate": 4000 }
+    {
+      "name": "Logo design",
+      "sac": "998391",
+      "qty": 1,
+      "rate": 15000
+    },
+    {
+      "name": "Menu card design",
+      "sac": "998391",
+      "qty": 2,
+      "rate": 4000
+    }
   ],
-  "tax": { "type": "IGST", "rate": 18 },
+  "tax": {
+    "type": "IGST",
+    "rate": 18
+  },
   "upi": {
     "id": "rahulstudio@example",
     "payeeName": "Rahul Design Studio"
   },
-  "status": "PAID"
+  "status": "PAID",
+  "kind": "invoice",
+  "receipt": {
+    "number": "2611-4827-0153",
+    "method": "UPI · GPay",
+    "paidDate": "20 Nov 2025"
+  }
 }
