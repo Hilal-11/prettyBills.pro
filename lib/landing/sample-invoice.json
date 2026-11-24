@@ -1,0 +1,31 @@
+{
+  "_note": "Hero sample invoice. Shared by the hero preview, every template thumbnail and the Open Graph image. GSTIN is a placeholder; replace before launch. The UPI ID uses a non-existent handle on purpose so the sample QR cannot receive money.",
+  "number": "INV/25-26/014",
+  "issueDate": "14 Nov 2025",
+  "dueDate": "28 Nov 2025",
+  "currency": "INR",
+  "from": {
+    "name": "Rahul Design Studio",
+    "city": "Srinagar",
+    "state": "Jammu & Kashmir",
+    "stateCode": "01",
+    "gstin": "01ABCDE1234F1Z5"
+  },
+  "billTo": {
+    "name": "Lakeview Café",
+    "city": "Bengaluru",
+    "state": "Karnataka",
+    "stateCode": "29"
+  },
+  "placeOfSupply": "Karnataka (29)",
+  "items": [
+    { "name": "Logo design", "sac": "998391", "qty": 1, "rate": 15000 },
+    { "name": "Menu card design", "sac": "998391", "qty": 2, "rate": 4000 }
+  ],
+  "tax": { "type": "IGST", "rate": 18 },
+  "upi": {
+    "id": "rahulstudio@example",
+    "payeeName": "Rahul Design Studio"
+  },
+  "status": "PAID"
+}
