@@ -5,6 +5,7 @@ import type { VariantProps } from "class-variance-authority"
 
 import { buttonVariants } from "@/components/ui/button"
 import { trackAttrs, type AnalyticsEvent } from "@/lib/analytics"
+import Image from "next/image"
 
 /**
  * A link styled as a button. Base UI's Button enforces `role="button"`, so its
@@ -58,13 +59,8 @@ export function ArrowNudge({ className }: { className?: string }) {
 
 export function Logo({ className }: { className?: string }) {
   return (
-    <span className={cn("inline-flex items-center gap-2 text-sm font-semibold tracking-tight", className)}>
-      <svg viewBox="0 0 20 20" aria-hidden className="size-5 text-foreground">
-        <rect width="20" height="20" rx="5" fill="currentColor" />
-        <path d="M6.5 4.5h5a3.5 3.5 0 0 1 0 7h-2.6v4H6.5z" className="fill-background" />
-        <path d="M8.9 6.8h2.5a1.2 1.2 0 0 1 0 2.4H8.9z" fill="currentColor" />
-      </svg>
-      Prettybill
-    </span>
+    <div className={cn("inline-flex items-center gap-2 text-sm font-semibold tracking-tight", className)}>
+      <Image src="/light-icon.png" alt="alt" width={36} height={36} className="border-1 border-beutral-700 dark:border-beutral-900 rounded-[6.9px]"/>
+    </div>
   )
 }

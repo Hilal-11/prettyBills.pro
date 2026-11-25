@@ -6,6 +6,12 @@
       "sourceType": "github",
       "skillPath": "skills/migrate-radix-to-base/SKILL.md",
       "computedHash": "4fdc31bf287f674ba6bf91a648120f7b34cd7ef370f998f2cc116fed067789c5"
+    },
+    "supabase-postgres-best-practices": {
+      "source": "supabase/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/supabase-postgres-best-practices/SKILL.md",
+      "computedHash": "128fac78002d916c8ca908245d398e634f540d8bcf20915b2b2359aeb18eba59"
     }
   }
 }

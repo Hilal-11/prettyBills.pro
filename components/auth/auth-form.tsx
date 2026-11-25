@@ -2,8 +2,9 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { AnimatePresence, motion } from "motion/react"
-import { EyeIcon, EyeOffIcon, LoaderCircleIcon, LogInIcon, UserPlusIcon } from "lucide-react"
+import { LoaderCircleIcon, LogInIcon, UserPlusIcon } from "lucide-react"
 import { FcGoogle } from "react-icons/fc"
 import { z } from "zod"
 import { cn } from "cn"
@@ -11,15 +12,21 @@ import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { CALLBACK_ERRORS, authMessage } from "@/lib/auth/messages"
+import { safeNext } from "@/lib/auth/redirect"
 import { ease, rise, spring, stagger } from "@/lib/motion"
+import { createClient } from "@/lib/supabase/client"
 
-type Mode = "login" | "signup"
+import { CheckEmail, Field, FormAlert, PasswordInput, PasswordMeter, SubmitButton, control, useSearchParam } from "./auth-ui"
+
+export type Mode = "login" | "signup"
 
 const copy = {
   login: {
     title: "Welcome back",
     subtitle: "Log in to send, track and get paid on your invoices.",
     submit: "Log in",
+    pending: "Logging in…",
     switchText: "Don't have an account?",
     switchCta: "Sign up",
   },
@@ -27,70 +34,154 @@ const copy = {
     title: "Create your account",
     subtitle: "Save your invoices, send them and get paid. Free forever.",
     submit: "Create account",
+    pending: "Creating account…",
     switchText: "Already have an account?",
     switchCta: "Log in",
   },
 } as const
 
 const schema = z.object({
-  name: z.string().trim().min(2, "Enter your name").optional(),
+  name: z.string().trim().min(2, "Enter your name").max(120, "Keep it under 120 characters").optional(),
   email: z.email("Enter a valid email"),
-  password: z.string().min(8, "Use at least 8 characters"),
+  password: z.string().min(8, "Use at least 8 characters").max(72, "Use at most 72 characters"),
 })
 
 type Errors = Partial<Record<"name" | "email" | "password" | "form", string>>
+type Sent = { email: string; reason: "signup" | "unconfirmed" }
 
-const control = "h-9 bg-background text-[13px] md:text-[13px]"
+/** Read on demand rather than with useSearchParams, so the page needs no Suspense boundary. */
+const nextParam = () => safeNext(new URLSearchParams(window.location.search).get("next"))
+const callbackUrl = (next: string) => `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`
 
-/**
- * Email + Google auth form (UI only). Validation is real; submitting shows the
- * loading state and then says sign-in isn't connected, rather than faking success.
- */
-export function AuthForm() {
-  const [mode, setMode] = React.useState<Mode>("login")
-  const [showPassword, setShowPassword] = React.useState(false)
+/** Email + password and Google sign-in, backed by Supabase Auth. */
+export function AuthForm({ initialMode = "login" }: { initialMode?: Mode }) {
+  const router = useRouter()
+  const [mode, setMode] = React.useState<Mode>(initialMode)
   const [errors, setErrors] = React.useState<Errors>({})
   const [pending, setPending] = React.useState<"email" | "google" | null>(null)
+  const [email, setEmail] = React.useState("")
+  const [password, setPassword] = React.useState("")
+  const [updates, setUpdates] = React.useState(false)
+  const [sent, setSent] = React.useState<Sent | null>(null)
   const t = copy[mode]
+
+  // errors handed back by /auth/callback, e.g. an expired email link
+  const callbackError = useSearchParam("error")
+  React.useEffect(() => {
+    if (!callbackError) return
+    // drop ?error= so a refresh doesn't show it again
+    const params = new URLSearchParams(window.location.search)
+    params.delete("error")
+    const qs = params.toString()
+    window.history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}`)
+  }, [callbackError])
+  const formError = errors.form ?? (callbackError ? (CALLBACK_ERRORS[callbackError] ?? CALLBACK_ERRORS.link) : undefined)
 
   function switchMode(next: Mode) {
     setMode(next)
     setErrors({})
+    // keep the address bar in step, so refresh and back land on the same form
+    window.history.replaceState(null, "", `/${next}${window.location.search}`)
   }
 
-  async function notConnected(kind: "email" | "google") {
-    setPending(kind)
-    await new Promise((r) => setTimeout(r, 900))
-    setPending(null)
-    // PLACEHOLDER: replace with the real auth call once the provider is chosen.
-    setErrors({ form: "Sign-in isn't connected yet. You can still make an invoice without an account." })
+  function finish() {
+    // keep the button spinning while the app loads; the proxy now sees the session
+    router.replace(nextParam())
+    router.refresh()
   }
 
-  function onSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function google() {
+    setPending("google")
+    setErrors({})
+    const { error } = await createClient().auth.signInWithOAuth({ provider: "google", options: { redirectTo: callbackUrl(nextParam()) } })
+    if (error) {
+      setPending(null)
+      setErrors({ form: authMessage(error) })
+    }
+    // on success the browser is already on its way to Google
+  }
+
+  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
     const parsed = schema.safeParse({
       name: mode === "signup" ? String(data.get("name") ?? "") : undefined,
-      email: String(data.get("email") ?? "").trim(),
-      password: String(data.get("password") ?? ""),
+      email: email.trim(),
+      password,
     })
     if (!parsed.success) {
       const next: Errors = {}
-      for (const issue of parsed.error.issues) {
-        const key = issue.path[0] as keyof Errors
-        next[key] ??= issue.message
-      }
+      for (const issue of parsed.error.issues) next[issue.path[0] as keyof Errors] ??= issue.message
       setErrors(next)
+      document.getElementById(Object.keys(next)[0]!)?.focus()
       return
     }
     setErrors({})
-    void notConnected("email")
+    setPending("email")
+    const supabase = createClient()
+    const values = parsed.data
+
+    if (mode === "login") {
+      const { error } = await supabase.auth.signInWithPassword({ email: values.email, password: values.password })
+      if (error) {
+        setPending(null)
+        if (error.code === "email_not_confirmed") return setSent({ email: values.email, reason: "unconfirmed" })
+        return setErrors(error.code === "invalid_credentials" ? { form: authMessage(error), password: " " } : { form: authMessage(error) })
+      }
+      return finish()
+    }
+
+    const { data: result, error } = await supabase.auth.signUp({
+      email: values.email,
+      password: values.password,
+      options: { emailRedirectTo: callbackUrl(nextParam()), data: { full_name: values.name, marketing_opt_in: updates } },
+    })
+    if (error) {
+      setPending(null)
+      return setErrors(error.code === "weak_password" ? { password: authMessage(error) } : { form: authMessage(error) })
+    }
+    if (result.session) return finish() // email confirmation is off for this project
+    setPending(null)
+    // Supabase hides whether an address is taken; an existing account comes back with no identities
+    if (result.user && result.user.identities?.length === 0) {
+      return setErrors({ form: "An account with this email already exists. Log in instead.", email: " " })
+    }
+    setSent({ email: values.email, reason: "signup" })
   }
 
-  const clear = (key: keyof Errors) => errors[key] && setErrors((e) => ({ ...e, [key]: undefined, form: undefined }))
+  async function resend() {
+    if (!sent) return null
+    const { error } = await createClient().auth.resend({ type: "signup", email: sent.email, options: { emailRedirectTo: callbackUrl(nextParam()) } })
+    return error ? authMessage(error) : null
+  }
+
+  const clear = (key: keyof Errors) => (errors[key] || errors.form) && setErrors((e) => ({ ...e, [key]: undefined, form: undefined }))
+
+  if (sent) {
+    return (
+      <CheckEmail
+        email={sent.email}
+        title={sent.reason === "signup" ? "Check your inbox" : "Confirm your email first"}
+        body={
+          sent.reason === "signup" ? (
+            <>We sent a confirmation link. Open it on this device and you&apos;ll be signed straight in.</>
+          ) : (
+            <>This account hasn&apos;t been confirmed yet. Open the link we emailed you, or send a fresh one.</>
+          )
+        }
+        onResend={resend}
+        onBack={() => {
+          setSent(null)
+          setPassword("")
+          if (sent.reason === "unconfirmed") switchMode("login")
+        }}
+        backText={sent.reason === "signup" ? "Use a different email" : "Back to log in"}
+      />
+    )
+  }
 
   return (
-    <motion.div initial="hidden" animate="show" variants={stagger} className="mx-auto flex w-full max-w-[340px] flex-col">
+    <motion.div initial="hidden" animate="show" variants={stagger} className="mx-auto flex w-full max-w-85 flex-col">
       {/* mode switch */}
       <motion.div variants={rise} className="mx-auto">
         <div role="tablist" aria-label="Account" className="flex rounded-lg border bg-muted/50 p-0.5">
@@ -106,6 +197,7 @@ export function AuthForm() {
               role="tab"
               aria-selected={mode === id}
               onClick={() => switchMode(id)}
+              disabled={pending !== null}
               className={cn(
                 "relative isolate inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs transition-colors",
                 mode === id ? "text-foreground" : "text-muted-foreground hover:text-foreground"
@@ -137,15 +229,9 @@ export function AuthForm() {
 
       {/* google */}
       <motion.div variants={rise} className="mt-7">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => notConnected("google")}
-          disabled={pending !== null}
-          className="h-9 w-full gap-2 bg-background text-[13px] shadow-xs active:scale-[0.98]"
-        >
+        <Button type="button" variant="outline" onClick={google} disabled={pending !== null} className="h-9 w-full gap-2 bg-background text-[13px] shadow-xs active:scale-[0.98]">
           {pending === "google" ? <LoaderCircleIcon className="animate-spin" /> : <FcGoogle className="size-4" />}
-          Continue with Google
+          {pending === "google" ? "Opening Google…" : "Continue with Google"}
         </Button>
       </motion.div>
 
@@ -157,105 +243,81 @@ export function AuthForm() {
 
       {/* email form */}
       <motion.form variants={rise} onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
-        <AnimatePresence initial={false}>
-          {mode === "signup" && (
-            <motion.div
-              key="name"
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.3, ease }}
-              className="-m-1 overflow-hidden p-1"
-            >
-              <Field id="name" label="Full name" error={errors.name}>
-                <Input id="name" name="name" autoComplete="name" placeholder="Rahul Mir" aria-invalid={!!errors.name || undefined} onChange={() => clear("name")} className={control} />
-              </Field>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <fieldset disabled={pending !== null} className="contents">
+          <AnimatePresence initial={false}>
+            {mode === "signup" && (
+              <motion.div
+                key="name"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.3, ease }}
+                className="-m-1 overflow-hidden p-1"
+              >
+                <Field id="name" label="Full name" error={errors.name}>
+                  <Input id="name" name="name" autoComplete="name" placeholder="Rahul Mir" aria-invalid={!!errors.name || undefined} onChange={() => clear("name")} className={control} />
+                </Field>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-        <Field id="email" label="Email address" error={errors.email}>
-          <Input
-            id="email"
-            name="email"
-            type="email"
-            inputMode="email"
-            autoComplete="email"
-            placeholder="you@business.in"
-            aria-invalid={!!errors.email || undefined}
-            onChange={() => clear("email")}
-            className={control}
-          />
-        </Field>
-
-        <Field
-          id="password"
-          label="Password"
-          error={errors.password}
-          aside={
-            mode === "login" ? (
-              <Link href="/forgot-password" className="text-xs text-muted-foreground transition-colors hover:text-foreground">
-                Forgot password?
-              </Link>
-            ) : null
-          }
-        >
-          <div className="relative">
+          <Field id="email" label="Email address" error={errors.email?.trim()}>
             <Input
+              id="email"
+              name="email"
+              type="email"
+              inputMode="email"
+              autoComplete={mode === "login" ? "username" : "email"}
+              placeholder="you@business.in"
+              value={email}
+              aria-invalid={!!errors.email || undefined}
+              onChange={(e) => {
+                setEmail(e.target.value)
+                clear("email")
+              }}
+              className={control}
+            />
+          </Field>
+
+          <Field
+            id="password"
+            label="Password"
+            error={errors.password?.trim()}
+            aside={
+              mode === "login" ? (
+                <Link href={`/forgot-password${email.trim() ? `?email=${encodeURIComponent(email.trim())}` : ""}`} className="text-xs text-muted-foreground transition-colors hover:text-foreground">
+                  Forgot password?
+                </Link>
+              ) : null
+            }
+          >
+            <PasswordInput
               id="password"
-              name="password"
-              type={showPassword ? "text" : "password"}
               autoComplete={mode === "login" ? "current-password" : "new-password"}
               placeholder={mode === "login" ? "Enter your password" : "At least 8 characters"}
-              aria-invalid={!!errors.password || undefined}
-              onChange={() => clear("password")}
-              className={cn(control, "pr-9")}
+              value={password}
+              error={errors.password}
+              onChange={(e) => {
+                setPassword(e.target.value)
+                clear("password")
+              }}
             />
-            <button
-              type="button"
-              onClick={() => setShowPassword((s) => !s)}
-              aria-label={showPassword ? "Hide password" : "Show password"}
-              className="absolute inset-y-0 right-0 grid w-9 place-items-center text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <AnimatePresence mode="wait" initial={false}>
-                <motion.span
-                  key={showPassword ? "hide" : "show"}
-                  initial={{ opacity: 0, scale: 0.6, rotate: -45 }}
-                  animate={{ opacity: 1, scale: 1, rotate: 0 }}
-                  exit={{ opacity: 0, scale: 0.6, rotate: 45 }}
-                  transition={{ duration: 0.18 }}
-                >
-                  {showPassword ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
-                </motion.span>
-              </AnimatePresence>
-            </button>
-          </div>
-        </Field>
+            {mode === "signup" && <PasswordMeter value={password} />}
+          </Field>
 
-        <Button type="submit" disabled={pending !== null} className="mt-1 h-9 w-full text-[13px] active:scale-[0.98]">
-          {pending === "email" && <LoaderCircleIcon className="animate-spin" />}
-          {pending === "email" ? (mode === "login" ? "Logging in…" : "Creating account…") : t.submit}
-        </Button>
+          <SubmitButton pending={pending === "email"} pendingText={t.pending}>
+            {t.submit}
+          </SubmitButton>
 
-        <AnimatePresence initial={false}>
-          {errors.form && (
-            <motion.p
-              role="alert"
-              initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2, ease }}
-              className="rounded-md border bg-muted/50 px-3 py-2 text-xs text-muted-foreground"
-            >
-              {errors.form}
-            </motion.p>
+          <FormAlert>{formError}</FormAlert>
+
+          {mode === "signup" && (
+            <label className="flex items-start gap-2.5 text-xs text-muted-foreground">
+              <Checkbox checked={updates} onCheckedChange={setUpdates} className="mt-px data-checked:border-brand-deep data-checked:bg-brand dark:data-checked:bg-brand" />
+              Email me new templates and product updates. No spam.
+            </label>
           )}
-        </AnimatePresence>
-
-        <label className="flex items-start gap-2.5 text-xs text-muted-foreground">
-          <Checkbox name={mode === "login" ? "remember" : "updates"} defaultChecked={mode === "login"} className="mt-px data-checked:border-brand-deep data-checked:bg-brand dark:data-checked:bg-brand" />
-          {mode === "login" ? "Keep me logged in on this device." : "Email me new templates and product updates. No spam."}
-        </label>
+        </fieldset>
       </motion.form>
 
       <motion.div variants={rise} className="mt-8 space-y-2 text-center text-xs text-muted-foreground">
@@ -286,32 +348,5 @@ export function AuthForm() {
         )}
       </motion.div>
     </motion.div>
-  )
-}
-
-function Field({ id, label, error, aside, children }: { id: string; label: string; error?: string; aside?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div className="grid gap-1.5">
-      <div className="flex items-center justify-between">
-        <label htmlFor={id} className="text-xs text-foreground/80">
-          {label}
-        </label>
-        {aside}
-      </div>
-      {children}
-      <AnimatePresence initial={false}>
-        {error && (
-          <motion.p
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.2, ease }}
-            className="text-[11px] text-destructive"
-          >
-            {error}
-          </motion.p>
-        )}
-      </AnimatePresence>
-    </div>
   )
 }

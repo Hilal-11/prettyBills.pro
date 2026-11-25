@@ -42,8 +42,8 @@ export function Footer() {
         </div>
 
         <div className="flex flex-col-reverse justify-between gap-4 border-t border-dashed pt-6 sm:flex-row sm:items-center">
-          <p className="text-xs text-muted-foreground">© 2026 Prettybill · Made in Kashmir, India</p>
-          <ul className="-ml-2 flex items-center gap-0.5 sm:ml-0" aria-label="Prettybill on social media">
+          <p className="text-xs text-muted-foreground">© 2026 PrettyBills · Made in Kashmir, India</p>
+          <ul className="-ml-2 flex items-center gap-0.5 sm:ml-0" aria-label="PrettyBills on social media">
             {socials.map((social) => {
               const Icon = socialIcons[social.key]
               return (
@@ -52,7 +52,7 @@ export function Footer() {
                     href={social.href}
                     target="_blank"
                     rel="noopener"
-                    aria-label={`Prettybill on ${social.label}`}
+                    aria-label={`PrettyBills on ${social.label}`}
                     className="grid size-8 place-items-center rounded-md text-muted-foreground transition-[color,background-color,scale] hover:bg-muted hover:text-foreground active:scale-90"
                   >
                     <Icon className="size-3.5" aria-hidden />

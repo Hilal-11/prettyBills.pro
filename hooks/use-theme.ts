@@ -10,6 +10,8 @@ function systemPrefersDark() {
   return window.matchMedia("(prefers-color-scheme: dark)").matches
 }
 
+const CHANGE = "pb:theme"
+
 function applyMode(mode: ThemeMode) {
   const dark = mode === "dark" || (mode === "system" && systemPrefersDark())
   document.documentElement.classList.toggle("dark", dark)
@@ -32,10 +34,15 @@ export function useTheme() {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- sync from storage after hydration
       if (saved === "light" || saved === "dark") setModeState(saved)
     } catch {}
+    // keep every toggle on the page (menu, settings, landing) showing the same mode
+    const onChange = (e: Event) => setModeState((e as CustomEvent<ThemeMode>).detail)
+    window.addEventListener(CHANGE, onChange)
+    return () => window.removeEventListener(CHANGE, onChange)
   }, [])
 
   const setMode = React.useCallback((next: ThemeMode) => {
     setModeState(next)
+    window.dispatchEvent(new CustomEvent(CHANGE, { detail: next }))
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches
     if (!reduce && "startViewTransition" in document) document.startViewTransition(() => applyMode(next))
     else applyMode(next)

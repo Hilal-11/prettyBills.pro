@@ -14,6 +14,7 @@ export type AnalyticsEvent =
   | "dev_docs_click"
   | "waitlist_submit"
   | "login_click"
+  | "support_click"
 
 export type AnalyticsProps = Record<string, string | undefined>
 

@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local invoice store (saves, share links, print jobs, email outbox)
+/.data/

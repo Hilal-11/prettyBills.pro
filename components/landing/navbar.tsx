@@ -5,6 +5,7 @@ import Link from "next/link"
 import { AnimatePresence, motion, useMotionValueEvent, useScroll } from "motion/react"
 import { cn } from "cn"
 
+import { SupportButton } from "@/components/support-button"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { trackAttrs } from "@/lib/analytics"
 import { navLinks } from "@/lib/landing/content"
@@ -39,7 +40,7 @@ export function Navbar() {
         )}
       >
         <div className="flex h-12 items-center gap-2 sm:h-14">
-          <Link href="/" aria-label="Prettybill home" className="mr-3 rounded-md focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none">
+          <Link href="/" aria-label="PrettyBills home" className="mr-3 rounded-md focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none">
             <Logo />
           </Link>
 
@@ -60,11 +61,12 @@ export function Navbar() {
             ))}
           </ul>
 
-          <div className="ml-auto flex items-center gap-1.5">
-            <ThemeToggle className="hidden md:inline-flex" />
+          {/* 10px between what you see: icon, text, button edges. Ghost items cancel their own padding with negative margins. */}
+          <div className="ml-auto flex items-center gap-2.5">
+            <ThemeToggle className="-mx-1.5 hidden md:inline-flex" />
             <Link
               href="/login"
-              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "hidden text-[13px] md:inline-flex hover:bg-neutral-200/20 hover:underline dark:hover:bg-neutral-800")}
+              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "-mx-2 hidden px-2 text-[13px] md:inline-flex hover:bg-neutral-200/20 hover:underline dark:hover:bg-neutral-800")}
               {...trackAttrs("login_click", "navbar")}
             >
               Log in
@@ -73,6 +75,7 @@ export function Navbar() {
               Create free invoice
               <ArrowNudge className="hidden sm:block" />
             </CtaLink>
+            <SupportButton section="navbar" size="nav" className="hidden md:inline-flex" />
             <Button
               variant="ghost"
               size="icon-sm"
@@ -120,6 +123,9 @@ export function Navbar() {
                     Log in
                   </Link>
                   <ThemeToggle />
+                </motion.li>
+                <motion.li variants={{ hidden: { opacity: 0, y: -4 }, show: { opacity: 1, y: 0 } }} className="pt-2">
+                  <SupportButton section="navbar_mobile" size="nav" className="w-full" />
                 </motion.li>
               </motion.ul>
             </motion.div>

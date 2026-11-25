@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
     agentFeedback: true,
   },
   cacheComponents: true,
+  // The dev badge sat on top of the editor's Send button; errors still show.
+  devIndicators: false,
   partialPrefetching: true,
   turbopack: {
     rules: {
