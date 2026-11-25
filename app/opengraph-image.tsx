@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og"
 
 import { formatINR, invoiceTotals, sampleInvoice as inv } from "@/lib/landing/invoice"
 
-export const alt = "Prettybill: a GST invoice for ₹27,140 from Rahul Design Studio, marked paid"
+export const alt = "PrettyBills: a GST invoice for ₹27,140 from Rahul Design Studio, marked paid"
 export const size = { width: 1200, height: 630 }
 export const contentType = "image/png"
 
@@ -19,7 +19,7 @@ export default function OpengraphImage() {
             <div style={{ width: 40, height: 40, borderRadius: 8, background: "#0a0a0a", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26 }}>
               P
             </div>
-            Prettybill
+            PrettyBills
           </div>
           <div style={{ display: "flex", flexDirection: "column", marginTop: 44, fontSize: 68, lineHeight: 1.04, letterSpacing: -2.5 }}>
             <span>Pretty invoices.</span>

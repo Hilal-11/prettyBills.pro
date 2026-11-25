@@ -135,7 +135,7 @@ export function HeroVideo({ src }: { src: string }) {
               playsInline
               preload="auto"
               controls={!!reduce}
-              aria-label="Prettybill product intro: making a GST invoice and sharing it"
+              aria-label="PrettyBills product intro: making a GST invoice and sharing it"
               className="block aspect-[4/3] w-full rounded-xl bg-muted object-cover"
             />
           </div>

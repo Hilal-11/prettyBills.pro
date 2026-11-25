@@ -92,7 +92,7 @@ export function AuthShowcase({ invoice }: { invoice: React.ReactNode }) {
 
         <div className="mt-4 flex items-end justify-between gap-4">
           <div>
-            <p className="text-[13px] font-semibold">Prettybill</p>
+            <p className="text-[13px] font-semibold">PrettyBills</p>
             <p className="text-xs text-white/70">{slide.foot}</p>
           </div>
           <div className="flex items-center gap-3">

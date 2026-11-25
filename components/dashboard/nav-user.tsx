@@ -1,14 +1,20 @@
 "use client"
 
+import * as React from "react"
+import { useRouter } from "next/navigation"
 import {
+  ArrowUpRightIcon,
   BellIcon,
   Building2Icon,
   ChevronsUpDownIcon,
+  CodeXmlIcon,
   CreditCardIcon,
   GiftIcon,
   KeyboardIcon,
   LanguagesIcon,
   LifeBuoyIcon,
+  LoaderCircleIcon,
+  LogInIcon,
   LogOutIcon,
   MessageSquareIcon,
   MonitorIcon,
@@ -16,11 +22,12 @@ import {
   SettingsIcon,
   SparklesIcon,
   SunIcon,
+  UserPlusIcon,
   UserRoundIcon,
   UsersIcon,
 } from "lucide-react"
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,15 +44,54 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useTheme, type ThemeMode } from "@/hooks/use-theme"
-import { currentUser } from "@/lib/dashboard/data"
+import type { SessionUser } from "@/lib/auth/types"
+import { authHref } from "@/lib/client/handoff"
+import { useKeyLabels } from "@/lib/client/platform"
+import { createClient } from "@/lib/supabase/client"
+
+import { useDashboardUI } from "./dashboard-ui"
 
 const item = "gap-2 py-1.5 text-[13px]"
 
-/** Profile button at the bottom of the sidebar and its account menu. */
-export function NavUser() {
+const GUEST = { name: "Guest", email: "Log in to save your work", plan: "Free" }
+
+/**
+ * Profile button at the bottom of the sidebar and its account menu.
+ * `user` is null for guests: same menu, with Log in / Sign up in place of Log out.
+ */
+export function NavUser({ user }: { user: SessionUser | null }) {
   const { isMobile } = useSidebar()
   const { mode, setMode } = useTheme()
+  const router = useRouter()
+  const [leaving, setLeaving] = React.useState(false)
+  const ui = useDashboardUI()
+  const keys = useKeyLabels()
+
+  const shown = user ?? GUEST
+
+  // signed out in another tab, or the session was revoked: leave the app here too
+  React.useEffect(() => {
+    if (!user) return
+    const { data } = createClient().auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") {
+        router.replace("/login")
+        router.refresh()
+      }
+    })
+    return () => data.subscription.unsubscribe()
+  }, [router, user])
+
+  // guests: the invoice they're on comes along to the login page
+  const toAuth = (mode: "login" | "signup") => router.push(authHref(mode))
+
+  async function logOut() {
+    setLeaving(true)
+    await createClient().auth.signOut()
+    router.replace("/login")
+    router.refresh()
+  }
 
   return (
     <SidebarMenu>
@@ -54,10 +100,10 @@ export function NavUser() {
           <DropdownMenuTrigger
             render={
               <SidebarMenuButton size="lg" className="data-popup-open:bg-sidebar-accent">
-                <UserAvatar />
+                <UserAvatar user={user} />
                 <span className="grid min-w-0 flex-1 text-left leading-tight">
-                  <span className="truncate text-[13px] font-semibold">{currentUser.name}</span>
-                  <span className="truncate text-[11px] text-muted-foreground">{currentUser.email}</span>
+                  <span className="truncate text-[13px] font-semibold">{shown.name}</span>
+                  <span className="truncate text-[11px] text-muted-foreground">{shown.email}</span>
                 </span>
                 <ChevronsUpDownIcon className="ml-auto size-4 text-muted-foreground" />
               </SidebarMenuButton>
@@ -71,51 +117,69 @@ export function NavUser() {
           >
             <DropdownMenuGroup>
             <DropdownMenuLabel className="flex items-center gap-2.5 px-1.5 py-1.5 text-foreground">
-              <UserAvatar />
+              <UserAvatar user={user} />
               <span className="grid min-w-0 flex-1 leading-tight">
-                <span className="truncate text-[13px] font-semibold">{currentUser.name}</span>
-                <span className="truncate text-[11px] font-medium text-muted-foreground">{currentUser.email}</span>
+                <span className="truncate text-[13px] font-semibold">{shown.name}</span>
+                <span className="truncate text-[11px] font-medium text-muted-foreground">{shown.email}</span>
               </span>
-              <span className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground">{currentUser.plan}</span>
+              <span className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground">{shown.plan}</span>
             </DropdownMenuLabel>
             </DropdownMenuGroup>
+            {!user && (
+              <div className="mx-1 mt-1 mb-1.5 rounded-lg border border-brand/20 bg-brand/5 p-2.5">
+                <p className="text-[12px] leading-snug text-foreground/80">You&apos;re a guest. Invoices aren&apos;t saved after you close this tab.</p>
+                <div className="mt-2 grid grid-cols-2 gap-1.5">
+                  <DropdownMenuItem
+                    onClick={() => toAuth("signup")}
+                    className="h-7 justify-center gap-1.5 rounded-md bg-linear-to-b from-brand to-brand-deep text-[12px] font-semibold text-white shadow-[0_2px_0_var(--brand-shadow)] focus:bg-none focus:text-white data-highlighted:from-brand data-highlighted:to-brand-deep data-highlighted:text-white [&_svg]:text-white"
+                  >
+                    <UserPlusIcon /> Sign up
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => toAuth("login")} className="h-7 justify-center gap-1.5 rounded-md border bg-background text-[12px] font-semibold">
+                    <LogInIcon /> Log in
+                  </DropdownMenuItem>
+                </div>
+              </div>
+            )}
             <DropdownMenuSeparator />
 
             <DropdownMenuGroup>
-              <DropdownMenuItem className={item}>
+              <DropdownMenuItem className={item} disabled>
                 <SparklesIcon />
                 Upgrade to Pro
-                <span className="ml-auto rounded bg-brand/10 px-1.5 py-0.5 text-[10px] text-brand dark:bg-brand/20 dark:text-[#6da2ff]">Soon</span>
+                <Tag tone="brand">Soon</Tag>
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
 
             <DropdownMenuGroup>
-              <DropdownMenuItem className={item}>
+              <DropdownMenuItem className={item} onClick={() => ui.openSettings("profile")}>
                 <UserRoundIcon />
                 Profile
-                <DropdownMenuShortcut>Ctrl P</DropdownMenuShortcut>
               </DropdownMenuItem>
-              <DropdownMenuItem className={item}>
+              <DropdownMenuItem className={item} onClick={() => ui.openSettings("business")}>
                 <Building2Icon />
                 Business details
               </DropdownMenuItem>
-              <DropdownMenuItem className={item}>
+              <DropdownMenuItem className={item} disabled>
                 <CreditCardIcon />
                 Billing & plan
+                <Tag>Free</Tag>
               </DropdownMenuItem>
-              <DropdownMenuItem className={item}>
+              <DropdownMenuItem className={item} disabled>
                 <UsersIcon />
                 Team members
+                <Tag>Soon</Tag>
               </DropdownMenuItem>
-              <DropdownMenuItem className={item}>
+              <DropdownMenuItem className={item} disabled>
                 <BellIcon />
                 Notifications
+                <Tag>Soon</Tag>
               </DropdownMenuItem>
-              <DropdownMenuItem className={item}>
+              <DropdownMenuItem className={item} onClick={() => ui.openSettings("preferences")}>
                 <SettingsIcon />
                 Settings
-                <DropdownMenuShortcut>Ctrl ,</DropdownMenuShortcut>
+                <DropdownMenuShortcut>{keys.mod} ,</DropdownMenuShortcut>
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
@@ -155,7 +219,7 @@ export function NavUser() {
                   </DropdownMenuRadioGroup>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
-              <DropdownMenuItem className={item}>
+              <DropdownMenuItem className={item} onClick={ui.openShortcuts}>
                 <KeyboardIcon />
                 Keyboard shortcuts
                 <DropdownMenuShortcut>?</DropdownMenuShortcut>
@@ -164,26 +228,41 @@ export function NavUser() {
             <DropdownMenuSeparator />
 
             <DropdownMenuGroup>
-              <DropdownMenuItem className={item}>
+              {/* new tab, so a guest's unsaved invoice stays open here */}
+              <DropdownMenuItem className={item} render={<a href="/help" target="_blank" rel="noopener" />}>
                 <LifeBuoyIcon />
-                Help & docs
+                Help & support
+                <ArrowUpRightIcon className="ml-auto size-3.5! text-muted-foreground" />
               </DropdownMenuItem>
-              <DropdownMenuItem className={item}>
+              <DropdownMenuItem className={item} render={<a href="/developers" target="_blank" rel="noopener" />}>
+                <CodeXmlIcon />
+                Developer docs
+                <ArrowUpRightIcon className="ml-auto size-3.5! text-muted-foreground" />
+              </DropdownMenuItem>
+              <DropdownMenuItem className={item} onClick={ui.openWhatsNew}>
                 <GiftIcon />
                 What&apos;s new
-                <span className="ml-auto size-1.5 rounded-full bg-brand" aria-label="New updates" />
+                {ui.whatsNewUnread && <span className="ml-auto size-1.5 rounded-full bg-brand" aria-label="New updates" />}
               </DropdownMenuItem>
-              <DropdownMenuItem className={item}>
+              <DropdownMenuItem className={item} onClick={() => ui.openFeedback()}>
                 <MessageSquareIcon />
                 Send feedback
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
 
-            <DropdownMenuItem variant="destructive" className={item}>
-              <LogOutIcon />
-              Log out
-            </DropdownMenuItem>
+            {user ? (
+              <DropdownMenuItem variant="destructive" className={item} disabled={leaving} closeOnClick={false} onClick={logOut}>
+                {leaving ? <LoaderCircleIcon className="animate-spin" /> : <LogOutIcon />}
+                {leaving ? "Logging out…" : "Log out"}
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem className={item} onClick={() => toAuth("login")}>
+                <LogInIcon />
+                Log in
+                <Tag tone="brand">Saves your work</Tag>
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>
@@ -191,13 +270,44 @@ export function NavUser() {
   )
 }
 
-function UserAvatar() {
+function UserAvatar({ user }: { user: SessionUser | null }) {
+  if (!user) {
+    return (
+      <Avatar className="size-8 rounded-md">
+        <AvatarFallback className="rounded-md border border-dashed border-foreground/25 bg-muted text-foreground/70">
+          <UserRoundIcon className="size-4" />
+        </AvatarFallback>
+      </Avatar>
+    )
+  }
   return (
     <Avatar className="size-8 rounded-md">
+      {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt="" referrerPolicy="no-referrer" className="rounded-md" />}
       <AvatarFallback className="rounded-md bg-linear-to-b from-brand to-brand-deep text-[11px] font-semibold text-white">
-        {currentUser.initials}
+        {user.initials}
       </AvatarFallback>
     </Avatar>
+  )
+}
+
+/** Same footprint as the profile button, shown while the session streams in. */
+export function NavUserSkeleton() {
+  return (
+    <div className="flex h-12 items-center gap-2 px-2" aria-hidden>
+      <Skeleton className="size-8 rounded-md" />
+      <div className="grid flex-1 gap-1.5">
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="h-2.5 w-32" />
+      </div>
+    </div>
+  )
+}
+
+function Tag({ children, tone }: { children: React.ReactNode; tone?: "brand" }) {
+  return (
+    <span className={tone === "brand" ? "ml-auto rounded bg-brand/10 px-1.5 py-0.5 text-[10px] text-brand dark:bg-brand/20 dark:text-[#6da2ff]" : "ml-auto rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground"}>
+      {children}
+    </span>
   )
 }
 

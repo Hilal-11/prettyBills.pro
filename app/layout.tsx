@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 })
 
-const title = "Prettybill — Free GST Invoice Maker with Beautiful Templates"
+const title = "PrettyBills — Free GST Invoice Maker with Beautiful Templates"
 const description =
   "Make a GST-ready invoice in 30 seconds. Pick a template, add your items, share on WhatsApp and get paid by UPI. Free forever, no signup needed."
 
@@ -24,11 +24,11 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://prettybill.in"),
   title,
   description,
-  applicationName: "Prettybill",
+  applicationName: "PrettyBills",
   keywords: ["GST invoice", "invoice maker", "free invoice generator", "UPI QR invoice", "invoice templates India"],
   openGraph: {
     type: "website",
-    siteName: "Prettybill",
+    siteName: "PrettyBills",
     title,
     description,
     locale: "en_IN",

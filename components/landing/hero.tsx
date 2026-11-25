@@ -3,7 +3,7 @@ import { ArrowNudge, CtaLink } from "./primitives"
 
 export function Hero() {
   return (
-    <section aria-label="Prettybill" className="relative isolate overflow-hidden pt-28 pb-6 sm:pt-36 sm:pb-10">
+    <section aria-label="PrettyBills" className="relative isolate overflow-hidden pt-28 pb-6 sm:pt-36 sm:pb-10">
       {/* soft top light + framing guide lines */}
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
         <div className="absolute inset-x-0 top-0 h-[520px] bg-[radial-gradient(50%_60%_at_50%_0%,color-mix(in_oklab,var(--foreground)_7%,transparent),transparent)]" />

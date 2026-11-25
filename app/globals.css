@@ -159,3 +159,28 @@
   animation-duration: 280ms;
   animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
+
+/* Invoice editor: preview ⇄ form linking. Regions come from data-region on templates. */
+.pb-linkable [data-region] {
+  outline: 2px solid transparent;
+  outline-offset: 3px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: outline-color 0.6s ease;
+}
+.pb-linkable [data-region]:hover {
+  outline-color: color-mix(in oklab, var(--brand) 30%, transparent);
+  transition-duration: 0.15s;
+}
+.pb-linkable[data-highlight="business"] [data-region="business"],
+.pb-linkable[data-highlight="client"] [data-region="client"],
+.pb-linkable[data-highlight="details"] [data-region="details"],
+.pb-linkable[data-highlight="items"] [data-region="items"],
+.pb-linkable[data-highlight="tax"] [data-region="tax"],
+.pb-linkable[data-highlight="payment"] [data-region="payment"],
+.pb-linkable[data-highlight="notes"] [data-region="notes"],
+.pb-linkable[data-highlight="signature"] [data-region="signature"],
+.pb-linkable[data-highlight="more"] [data-region="more"] {
+  outline-color: var(--brand);
+  transition-duration: 0.15s;
+}

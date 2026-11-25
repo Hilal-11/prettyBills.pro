@@ -3,7 +3,8 @@
  * Anything marked `PLACEHOLDER` must be confirmed before launch.
  */
 
-export const DOCS_URL = "https://prettybill.dev"
+export const DOCS_URL = "/developers"
+export const HELP_URL = "/help"
 
 export const navLinks = [
   { label: "Dashboard", href: "/dashboard" },
@@ -18,7 +19,7 @@ export const footerLinks = [
   { label: "Templates", href: "/templates" },
   { label: "Pricing", href: "/pricing" },
   { label: "GST calculator", href: "/tools/gst-calculator" },
-  { label: "Docs", href: DOCS_URL },
+  { label: "Help center", href: HELP_URL },
   // PLACEHOLDER: confirm privacy policy and terms URLs.
   { label: "Privacy", href: "/privacy" },
   { label: "Terms", href: "/terms" },
