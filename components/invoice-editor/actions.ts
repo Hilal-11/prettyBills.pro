@@ -87,6 +87,10 @@ export async function sendInvoice(invoice: Invoice, payload: SendPayload) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ invoice, ...payload }),
   })
-  if (!res.ok) throw new Error(await errorOf(res))
+  if (!res.ok) {
+    // 402: not in the plan; the error carries where to upgrade
+    const data = (await res.json().catch(() => null)) as { error?: string; upgrade?: string } | null
+    throw Object.assign(new Error(data?.error ?? `Request failed (${res.status})`), { upgrade: data?.upgrade })
+  }
   return (await res.json()) as { ok: true; delivered: boolean; sentAt: string; status: Invoice["status"]; publicToken?: string; summary: string }
 }

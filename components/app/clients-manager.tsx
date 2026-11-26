@@ -38,13 +38,16 @@ const COLS = "minmax(0,2fr) minmax(0,1.2fr) 5rem 1fr 1fr 8.5rem"
 /** /clients: everyone you bill, what they've been billed and what they owe. */
 export function ClientsManager({ clients }: { clients: ClientWithStats[] }) {
   const [q, setQ] = React.useState("")
+  const [owesOnly, setOwesOnly] = React.useState(false)
+  const [byOwed, setByOwed] = React.useState(false)
   const [editing, setEditing] = React.useState<Client | "new" | null>(null)
   const [deleting, setDeleting] = React.useState<ClientWithStats | null>(null)
   const router = useRouter()
   const toast = useToast()
 
   const term = q.trim().toLowerCase()
-  const shown = term ? clients.filter((c) => [c.name, c.gstin, c.email, c.phone, c.address.city].some((v) => v?.toLowerCase().includes(term))) : clients
+  const matched = (term ? clients.filter((c) => [c.name, c.gstin, c.email, c.phone, c.address.city].some((v) => v?.toLowerCase().includes(term))) : clients).filter((c) => !owesOnly || c.outstanding > 0)
+  const shown = byOwed ? [...matched].sort((a, b) => b.outstanding - a.outstanding || a.name.localeCompare(b.name)) : matched
   const owed = clients.reduce((s, c) => s + c.outstanding, 0)
 
   async function remove(c: ClientWithStats) {
@@ -70,7 +73,15 @@ export function ClientsManager({ clients }: { clients: ClientWithStats[] }) {
             </>
           )}
         </p>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            aria-pressed={owesOnly}
+            onClick={() => setOwesOnly((v) => !v)}
+            className={cn("h-8 shrink-0 rounded-lg border px-2.5 text-[13px] transition-colors", owesOnly ? "border-brand/40 bg-brand/8 font-medium text-foreground" : "bg-background text-foreground/75 hover:bg-muted")}
+          >
+            Owes you
+          </button>
           <div className="relative w-full sm:w-64">
             <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
@@ -103,16 +114,18 @@ export function ClientsManager({ clients }: { clients: ClientWithStats[] }) {
             <span>Location</span>
             <span className="text-right">Invoices</span>
             <span className="text-right">Billed</span>
-            <span className="text-right">Owes you</span>
+            <button type="button" onClick={() => setByOwed((v) => !v)} aria-label={byOwed ? "Sorted by amount owed. Sort by name" : "Sort by amount owed"} className={cn("text-right uppercase hover:text-foreground", byOwed && "text-foreground")}>
+              Owes you {byOwed ? "↓" : ""}
+            </button>
             <span />
           </div>
           <ul className="divide-y">
             {shown.map((c) => (
               <li key={c.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 px-4 py-3 text-[13px] md:grid-cols-(--cols)" style={{ "--cols": COLS } as React.CSSProperties}>
-                <button type="button" onClick={() => setEditing(c)} className="min-w-0 text-left outline-none focus-visible:underline">
+                <Link href={`/clients/${encodeURIComponent(c.id)}`} className="min-w-0 text-left outline-none hover:underline focus-visible:underline">
                   <span className="block truncate font-semibold">{c.name}</span>
                   <span className="block truncate text-muted-foreground">{c.gstin || c.email || c.phone || "No GSTIN"}</span>
-                </button>
+                </Link>
                 <span className="hidden truncate text-foreground/85 md:block">{[c.address.city, c.address.stateCode && stateLabel(c.address.stateCode)].filter(Boolean).join(", ") || "—"}</span>
                 <span className="hidden text-right tabular-nums md:block">{c.invoices || "—"}</span>
                 <span className="hidden text-right tabular-nums md:block">{c.billed ? money(c.billed) : "—"}</span>
@@ -131,8 +144,8 @@ export function ClientsManager({ clients }: { clients: ClientWithStats[] }) {
                       <DropdownMenuItem className="gap-2 py-1.5 text-[13px]" onClick={() => setEditing(c)}>
                         <PencilLineIcon /> Edit details
                       </DropdownMenuItem>
-                      <DropdownMenuItem className="gap-2 py-1.5 text-[13px]" render={<Link href={`/invoices?q=${encodeURIComponent(c.name)}`} />}>
-                        <SearchIcon /> See invoices
+                      <DropdownMenuItem className="gap-2 py-1.5 text-[13px]" render={<Link href={`/clients/${encodeURIComponent(c.id)}`} />}>
+                        <SearchIcon /> Balance and statement
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem variant="destructive" className="gap-2 py-1.5 text-[13px]" onClick={() => setDeleting(c)}>

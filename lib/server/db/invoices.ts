@@ -140,6 +140,11 @@ export async function getOverview(db: SupabaseClient): Promise<Overview> {
     collectedMonth: Number(o.collected_month ?? 0),
     invoicedMonth: Number(o.invoiced_month ?? 0),
     invoicedMonthCount: o.invoiced_month_count ?? 0,
+    outstandingCount: o.outstanding_count ?? (o.sent ?? 0) + (o.overdue ?? 0),
+    oldestOverdueDays: o.oldest_overdue_days ?? 0,
+    collectedLastMonth: Number(o.collected_last_month ?? 0),
+    avgDaysToPay: o.avg_days_to_pay == null ? null : Number(o.avg_days_to_pay),
+    avgDaysSample: o.avg_days_sample ?? 0,
   }
 }
 
@@ -180,19 +185,18 @@ type Existing = { status: SummaryRow["status"]; paid_at: string | null; public_t
  * Creates or replaces an invoice from the editor. The document is stored whole;
  * list columns are derived from it here, so they can never disagree.
  * Columns the server owns (link token, sent/viewed/paid times) aren't taken
- * from the client. Returns the stored status so the editor can reflect it.
+ * from the client, and what's been received comes only from recorded
+ * payments: the database recomputes amount paid, paid/part-paid status and
+ * the paid date on every write (and refuses a total below what's been paid).
+ * Returns the stored status and amount paid so the editor can reflect them.
  */
 export async function saveInvoice(db: SupabaseClient, userId: string, invoice: Invoice) {
   const { data: existing, error: readError } = await db.from("invoices").select("status, paid_at, public_token, sent_at").eq("id", invoice.id).maybeSingle<NonNullable<Existing>>()
   if (readError) throw new DbError(readError)
 
   const totals = computeInvoiceTotals(invoice)
-  const amountPaid = Math.max(0, Math.round(invoice.payment?.amountPaid ?? 0))
-  let status: SummaryRow["status"] = settleStatus(invoice.status, totals.total, amountPaid)
-  // a stale editor mustn't undo a view the server recorded
-  if (status === "sent" && existing?.status === "viewed") status = "viewed"
-  const becamePaid = status === "paid" && existing?.status !== "paid"
-  const paidAt = status === "paid" ? (existing?.paid_at ?? new Date().toISOString()) : null
+  // lifecycle only (draft / sent / void); the trigger works out the money part
+  const status: SummaryRow["status"] = settleStatus(invoice.status, totals.total, 0)
 
   const doc: Invoice = { ...invoice, status, publicToken: existing?.public_token ?? undefined, sentAt: existing?.sent_at ?? undefined }
   const row = {
@@ -206,23 +210,20 @@ export async function saveInvoice(db: SupabaseClient, userId: string, invoice: I
     due_date: invoice.dueDate || null,
     currency: invoice.currency || "INR",
     total: totals.total,
-    amount_paid: amountPaid,
     missing_fields: validateInvoice(invoice).requiredMissing,
     template_id: invoice.templateId,
     link_active: invoice.linkActive,
-    paid_at: paidAt,
     data: doc,
   }
 
-  const { data, error } = await db.from("invoices").upsert(row, { onConflict: "id" }).select("updated_at").single()
+  const { data, error } = await db.from("invoices").upsert(row, { onConflict: "id" }).select("updated_at, status, amount_paid").single()
   if (error) throw new DbError(error)
   if (!existing) await addEvent(db, userId, invoice.id, "created")
-  if (becamePaid) await addEvent(db, userId, invoice.id, "paid")
-  return { savedAt: data.updated_at as string, status }
+  return { savedAt: data.updated_at as string, status: data.status as SummaryRow["status"], amountPaid: Number(data.amount_paid) }
 }
 
-export async function addEvent(db: SupabaseClient, userId: string, invoiceId: string, type: InvoiceEvent["type"]) {
-  const { error } = await db.from("invoice_events").insert({ invoice_id: invoiceId, user_id: userId, type })
+export async function addEvent(db: SupabaseClient, userId: string, invoiceId: string, type: InvoiceEvent["type"], meta?: Record<string, unknown>) {
+  const { error } = await db.from("invoice_events").insert({ invoice_id: invoiceId, user_id: userId, type, meta: meta ?? null })
   if (error) console.warn(`[invoices] couldn't record ${type} for ${invoiceId}: ${error.message}`)
 }
 
@@ -249,24 +250,28 @@ export async function ensureShareLink(db: SupabaseClient, id: string, active?: b
 }
 
 /** After an email goes out: status, sent time and the event. */
-export async function markSent(db: SupabaseClient, userId: string, invoice: Invoice) {
+export async function markSent(db: SupabaseClient, userId: string, invoice: Invoice, meta?: Record<string, unknown>) {
   const sentAt = new Date().toISOString()
   const status = invoice.status === "draft" ? "sent" : invoice.status
   const saved = await saveInvoice(db, userId, { ...invoice, status })
   const { error } = await db.from("invoices").update({ sent_at: sentAt, data: { ...invoice, status: saved.status, sentAt } }).eq("id", invoice.id)
   if (error) throw new DbError(error)
-  await addEvent(db, userId, invoice.id, "sent")
+  await addEvent(db, userId, invoice.id, "sent", meta)
   return { sentAt, status: saved.status }
 }
 
-/** Records a payment in full (or clears it), keeping the document in step. */
-export async function setPaid(db: SupabaseClient, userId: string, id: string, paid: boolean) {
+/**
+ * Marks a finished draft as sent without emailing it (it went out as a PDF,
+ * a link or on WhatsApp). Needed before payments can be recorded.
+ */
+export async function markSentManually(db: SupabaseClient, userId: string, id: string) {
   const invoice = await getInvoice(db, id)
   if (!invoice) return null
-  if (invoice.status === "draft" || invoice.status === "void") throw new Error("Only sent invoices can be marked paid.")
-  const total = computeInvoiceTotals(invoice).total
-  const next: Invoice = { ...invoice, status: paid ? "paid" : "sent", payment: { ...invoice.payment, amountPaid: paid ? total : 0 } }
-  return saveInvoice(db, userId, next)
+  if (invoice.status !== "draft") return { status: invoice.status }
+  const missing = validateInvoice(invoice).requiredMissing
+  if (missing > 0) throw new Error(`Fill in ${missing} required field${missing === 1 ? "" : "s"} before marking it sent.`)
+  const sent = await markSent(db, userId, { ...invoice, status: "sent" }, { manual: true })
+  return { status: sent.status }
 }
 
 /** Cancels a sent invoice but keeps it (and its number) on record, as GST rules expect. */
@@ -337,7 +342,7 @@ export async function trackShared(db: SupabaseClient, token: string, type: "view
 
 /* -------------------------------- activity ----------------------------- */
 
-export type Activity = { type: InvoiceEvent["type"]; at: string; invoiceId: string; number: string; clientName: string }
+export type Activity = { type: InvoiceEvent["type"] | "payment" | "payment_deleted"; at: string; invoiceId: string; number: string; clientName: string; detail?: string }
 
 /** The latest things that happened across the user's invoices (not counting drafts being created). */
 export async function listRecentActivity(db: SupabaseClient, limit = 8): Promise<Activity[]> {

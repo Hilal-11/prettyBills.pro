@@ -3,9 +3,10 @@ import type { Browser } from "playwright"
 import { footerText } from "@/components/landing/invoice-standard"
 import { DEFAULT_TEMPLATE_ID, templateMeta } from "@/lib/invoice/templates"
 import { computeInvoiceTotals } from "@/lib/invoice/totals"
+import type { ReceiptView } from "@/lib/data/types"
 import type { Invoice } from "@/lib/invoice/types"
 
-import { dropPrintJob, putPrintJob } from "./store"
+import { dropPrintJob, putJob, putPrintJob, putReceiptJob } from "./store"
 
 /**
  * Renders an invoice to PDF with a headless browser, from the same React
@@ -71,6 +72,32 @@ export async function renderInvoicePdf(invoice: Invoice, origin: string): Promis
       footerTemplate: footer,
       margin: { top: "0", right: "0", bottom: "14mm", left: "0" },
     })
+  } finally {
+    await page.close().catch(() => {})
+    await dropPrintJob(token).catch(() => {})
+  }
+}
+
+/** A payment receipt as an A4 PDF, from the same component the app shows. */
+export async function renderReceiptPdf(view: ReceiptView, origin: string): Promise<Uint8Array> {
+  const token = await putReceiptJob(view)
+  return renderA4(`${origin}/print/receipt/${token}`, token)
+}
+
+/** A client's statement of account as an A4 PDF. */
+export async function renderStatementPdf(data: unknown, origin: string): Promise<Uint8Array> {
+  const token = await putJob("statement", data)
+  return renderA4(`${origin}/print/statement/${token}`, token)
+}
+
+async function renderA4(url: string, token: string) {
+  const browser = await getBrowser()
+  const page = await browser.newPage({ viewport: { width: 794, height: 1123 }, deviceScaleFactor: 2 })
+  try {
+    await page.goto(url, { waitUntil: "networkidle", timeout: 30_000 })
+    await page.waitForSelector("[data-print-ready]", { timeout: 15_000 })
+    await page.evaluate(() => document.fonts.ready)
+    return await page.pdf({ format: "A4", printBackground: true, margin: { top: "0", right: "0", bottom: "0", left: "0" } })
   } finally {
     await page.close().catch(() => {})
     await dropPrintJob(token).catch(() => {})

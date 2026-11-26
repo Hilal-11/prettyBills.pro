@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useRouter } from "next/navigation"
 import { useDefaultLayout, type LayoutStorage } from "react-resizable-panels"
 import { EyeIcon } from "lucide-react"
 
@@ -10,6 +11,8 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { onEditorEvents } from "@/lib/client/editor-events"
+import { parkGuestWork } from "@/lib/client/handoff"
+import { emailInPlan, upgradeHref } from "@/lib/pricing"
 import { KEYS } from "@/lib/client/local"
 
 import { AccountDialog } from "./account-dialog"
@@ -45,14 +48,21 @@ const safeStorage: LayoutStorage = {
 export function InvoiceWorkspace({ invoiceId, templateId, clientId }: { invoiceId?: string; templateId?: string; clientId?: string }) {
   const ed = useEditor({ invoiceId, templateId, clientId })
   const toast = useToast()
+  const router = useRouter()
   const wide = useMinWidth(1024)
   const [sendOpen, setSendOpen] = React.useState(false)
   const [previewModal, setPreviewModal] = React.useState(false)
   const [narrowTab, setNarrowTab] = React.useState<"form" | "preview">("form")
   const split = useDefaultLayout({ id: KEYS.split, storage: safeStorage, panelIds: ["preview", "editor"] })
 
-  const requestSend = React.useCallback(() => {
-    if (ed.guest) return ed.askAccount("send")
+  // Emailing is Pro: everyone else goes to /pricing, and their work is kept for when they come back
+  const requestSend = React.useCallback(async () => {
+    if (!emailInPlan(ed.plan)) {
+      if (ed.guest) parkGuestWork()
+      else await ed.flush()
+      router.push(upgradeHref("email", ed.guest ? "/create" : window.location.pathname))
+      return
+    }
     const v = ed.validation
     if (v.requiredMissing > 0 && v.firstInvalid) {
       ed.setShowAllErrors(true)
@@ -63,7 +73,7 @@ export function InvoiceWorkspace({ invoiceId, templateId, clientId }: { invoiceI
       return
     }
     setSendOpen(true)
-  }, [ed, toast, wide])
+  }, [ed, toast, wide, router])
 
   const saveDraft = React.useCallback(() => {
     if (ed.guest) return ed.askAccount("save")

@@ -25,6 +25,7 @@ export function ListSearch({ placeholder }: { placeholder: string }) {
       if (value.trim()) next.set("q", value.trim())
       else next.delete("q")
       next.delete("page")
+      next.delete("cursor")
       startTransition(() => router.replace(`${pathname}${next.size ? `?${next}` : ""}`, { scroll: false }))
     }, 250)
     return () => clearTimeout(t)

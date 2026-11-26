@@ -27,6 +27,7 @@ import {
   UsersIcon,
 } from "lucide-react"
 
+import { ProBadge } from "@/components/app/premium"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   DropdownMenu,
@@ -49,6 +50,7 @@ import { useTheme, type ThemeMode } from "@/hooks/use-theme"
 import type { SessionUser } from "@/lib/auth/types"
 import { authHref } from "@/lib/client/handoff"
 import { useKeyLabels } from "@/lib/client/platform"
+import { yearlyPerMonth } from "@/lib/pricing"
 import { createClient } from "@/lib/supabase/client"
 
 import { useDashboardUI } from "./dashboard-ui"
@@ -122,7 +124,7 @@ export function NavUser({ user }: { user: SessionUser | null }) {
                 <span className="truncate text-[13px] font-semibold">{shown.name}</span>
                 <span className="truncate text-[11px] font-medium text-muted-foreground">{shown.email}</span>
               </span>
-              <span className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground">{shown.plan}</span>
+              {shown.plan === "Pro" ? <ProBadge /> : <span className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground">{shown.plan}</span>}
             </DropdownMenuLabel>
             </DropdownMenuGroup>
             {!user && (
@@ -143,14 +145,18 @@ export function NavUser({ user }: { user: SessionUser | null }) {
             )}
             <DropdownMenuSeparator />
 
-            <DropdownMenuGroup>
-              <DropdownMenuItem className={item} disabled>
-                <SparklesIcon />
-                Upgrade to Pro
-                <Tag tone="brand">Soon</Tag>
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
+            {shown.plan !== "Pro" && (
+              <>
+                <DropdownMenuGroup>
+                  <DropdownMenuItem className={item} onClick={() => router.push("/pricing")}>
+                    <SparklesIcon className="text-amber-500" />
+                    Upgrade to Pro
+                    <Tag tone="brand">{`From ₹${yearlyPerMonth()}/mo`}</Tag>
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+              </>
+            )}
 
             <DropdownMenuGroup>
               <DropdownMenuItem className={item} onClick={() => ui.openSettings("profile")}>
@@ -161,10 +167,10 @@ export function NavUser({ user }: { user: SessionUser | null }) {
                 <Building2Icon />
                 Business details
               </DropdownMenuItem>
-              <DropdownMenuItem className={item} disabled>
+              <DropdownMenuItem className={item} onClick={() => router.push("/pricing")}>
                 <CreditCardIcon />
                 Billing & plan
-                <Tag>Free</Tag>
+                <Tag>{shown.plan}</Tag>
               </DropdownMenuItem>
               <DropdownMenuItem className={item} disabled>
                 <UsersIcon />

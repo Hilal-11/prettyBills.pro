@@ -28,7 +28,11 @@ export function ClientSection({ ed }: { ed: EditorApi }) {
   const [overriding, setOverriding] = React.useState(false)
   const err = (p: string) => ed.errorFor(p)
 
+  // payments are recorded against this client: the invoice can't move to another one
+  const locked = inv.payment.amountPaid > 0
+
   function selectClient(c: Client) {
+    if (locked && c.id !== inv.clientId) return
     ed.update((d) => {
       d.clientId = c.id
       d.billTo = partyFromClient(c)
@@ -48,7 +52,7 @@ export function ClientSection({ ed }: { ed: EditorApi }) {
   const b = inv.billTo
   return (
     <SectionCard ed={ed} id="client" icon={UserIcon} title="Client" summary={b.name ? `${b.name} · ${b.address.city}` : "Choose a client"}>
-      <Field label="Client" required error={err("billTo.name")}>
+      <Field label="Client" required error={err("billTo.name")} help={locked ? "This invoice has payments, so its client can't change. You can still edit their details." : undefined}>
         <Combobox
           field="clientId"
           value={inv.clientId}

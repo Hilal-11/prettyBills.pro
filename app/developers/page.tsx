@@ -109,7 +109,7 @@ const { invoices } = await res.json()
             ["invoiceDiscount", "Discount", "Optional. { kind: percent | amount, value }; amount is in paise."],
             ["charges", "Charge[]", "Extras such as delivery, each with its own taxRate."],
             ["roundOff", "boolean", "Round the total to the nearest rupee."],
-            ["payment", "object", "UPI QR, bank details, instructions and amountPaid (paise)."],
+            ["payment", "object", "UPI QR, bank details and instructions. amountPaid (paise) is read-only: it is the sum of payments recorded in the app."],
             ["linkActive", "boolean", "Whether the public link works. publicToken is set by the server."],
             ["revision", "number", "Goes up by one when an invoice is edited after it was sent."],
           ]}
@@ -211,6 +211,9 @@ const blob = await res.blob()`}
           />
           <p>
             Replies go to <Code>invoice.from.email</Code>. Returns <Code>{"{ ok, delivered, sentAt, status, publicToken, summary }"}</Code>. A <Code>422</Code> with <Code>firstInvalid</Code> means a required field is missing.
+          </p>
+          <p>
+            Emailing is a Pro feature. Accounts without it get <Code>402</Code> with <Code>{"{ code: \"upgrade_required\", upgrade }"}</Code>, where <Code>upgrade</Code> is the pricing page. Pro allows 1,000 emails a month; past that the answer is <Code>429</Code> with <Code>code: &quot;email_limit&quot;</Code>.
           </p>
         </Endpoint>
         <Callout tone="tip" title="Self-hosting">

@@ -12,7 +12,7 @@ import { formatMoney } from "@/lib/invoice/totals"
 import type { BankDetails } from "@/lib/invoice/types"
 import { RX } from "@/lib/invoice/validate"
 
-import { Field, MoneyInput, Segmented, TextField, ToggleRow } from "../fields"
+import { Field, Segmented, TextField, ToggleRow } from "../fields"
 import { GuestSaveHint } from "../account-dialog"
 import { SectionCard } from "../section-card"
 import type { EditorApi } from "../use-editor"
@@ -145,9 +145,13 @@ export function PaymentSection({ ed }: { ed: EditorApi }) {
         />
       </Field>
 
-      <Field label="Amount already paid / advance" help={p.amountPaid > 0 ? `Balance due ${formatMoney(ed.totals.balanceDue)}` : "Shows Amount paid and Balance due on the invoice"}>
-        <MoneyInput field="payment.amountPaid" value={p.amountPaid} onChange={(v) => ed.update((d) => void (d.payment.amountPaid = v), "payment.amountPaid")} />
-      </Field>
+      <p className="rounded-lg bg-muted/50 px-3 py-2 text-xs text-foreground/70">
+        {p.amountPaid > 0
+          ? `${formatMoney(p.amountPaid)} received, ${formatMoney(ed.totals.balanceDue)} due. Payments are recorded in the Payments card above, each with its own receipt.`
+          : ed.guest
+            ? "Once you log in and send this invoice, you can record payments against it, each with a receipt."
+            : "Record payments once the invoice is sent. The invoice then shows Amount paid and Balance due by itself."}
+      </p>
 
       {ed.guest ? (
         <div className="border-t border-dashed pt-3">

@@ -9,9 +9,10 @@ import {
   CircleCheckBigIcon,
   DownloadIcon,
   EyeIcon,
-  FilePenLineIcon,
   FilePlus2Icon,
   HourglassIcon,
+  TimerIcon,
+  Trash2Icon,
   LayoutDashboardIcon,
   MessageCircleIcon,
   SendIcon,
@@ -30,7 +31,10 @@ import { Skeleton } from "@/components/ui/skeleton"
 import type { ClientWithStats, InvoiceSummary, Overview } from "@/lib/data/types"
 import { formatDate } from "@/lib/invoice/format"
 import { formatMoney } from "@/lib/invoice/totals"
+import { formatINR } from "@/lib/billing/money"
+import { isMode, MODE_LABEL } from "@/lib/billing/modes"
 import { getOverview, listInvoices, listRecentActivity, type Activity } from "@/lib/server/db/invoices"
+import { listRecentPaymentActivity } from "@/lib/server/db/payments"
 import { dbMessage } from "@/lib/server/db/util"
 import { getSettings, listClientsWithStats } from "@/lib/server/db/workspace"
 import { getSession } from "@/lib/server/session"
@@ -69,7 +73,7 @@ async function OverviewBody() {
   }
   const { db } = session
 
-  let data: [Overview, { invoices: InvoiceSummary[] }, { invoices: InvoiceSummary[] }, Activity[], ClientWithStats[], Awaited<ReturnType<typeof getSettings>>]
+  let data: [Overview, { invoices: InvoiceSummary[] }, { invoices: InvoiceSummary[] }, Activity[], ClientWithStats[], Awaited<ReturnType<typeof getSettings>>, Awaited<ReturnType<typeof listRecentPaymentActivity>>]
   try {
     data = await Promise.all([
       getOverview(db),
@@ -78,11 +82,30 @@ async function OverviewBody() {
       listRecentActivity(db, 8),
       listClientsWithStats(db),
       getSettings(db),
+      // payments arrive with the payments migration; until then the feed shows invoice events only
+      listRecentPaymentActivity(db, 8).catch(() => []),
     ])
   } catch (error) {
     return <EmptyState icon={AlarmClockIcon} title="Couldn't load your dashboard" body={dbMessage(error)} />
   }
-  const [o, overdue, sent, activity, clients, settings] = data
+  const [o, overdue, sent, invoiceActivity, clients, settings, paymentActivity] = data
+  const activity: Activity[] = [
+    ...invoiceActivity.filter((a) => a.type !== "paid"),
+    ...paymentActivity.map((p) => ({
+      type: (p.action === "payment.deleted" ? "payment_deleted" : "payment") as Activity["type"],
+      at: p.created_at,
+      invoiceId: p.invoice_id ?? "",
+      number: String(p.data.invoice_number ?? ""),
+      clientName: "",
+      detail:
+        p.action === "payment.deleted"
+          ? `payment of ${formatINR(Number(p.data.amount_paise ?? 0))} deleted`
+          : `${formatINR(Number(p.data.amount_paise ?? 0))} received${isMode(p.data.mode) ? ` via ${MODE_LABEL[p.data.mode]}` : ""}`,
+    })),
+  ]
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .slice(0, 8)
+  const change = o.collectedLastMonth > 0 ? Math.round(((o.collectedMonth - o.collectedLastMonth) / o.collectedLastMonth) * 100) : null
 
   if (o.all === 0) return <GettingStarted hasBusiness={!!settings.business?.name} hasClient={clients.length > 0} />
 
@@ -97,10 +120,32 @@ async function OverviewBody() {
   return (
     <div className="grid gap-6">
       <section aria-label="Totals" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Kpi href="/invoices/sent" icon={WalletIcon} label="Outstanding" value={money(o.outstanding)} note={`${o.sent + o.overdue} invoice${o.sent + o.overdue === 1 ? "" : "s"} awaiting payment`} />
-        <Kpi href="/invoices/overdue" icon={AlarmClockIcon} label="Overdue" value={money(o.overdueAmount)} note={o.overdue ? `${o.overdue} past due` : "Nothing late"} tone={o.overdue ? "danger" : undefined} />
-        <Kpi href="/invoices/paid" icon={CircleCheckBigIcon} label="Collected this month" value={money(o.collectedMonth)} note={`${money(o.invoicedMonth)} invoiced this month`} tone="good" />
-        <Kpi href="/invoices/drafts" icon={FilePenLineIcon} label="Drafts" value={String(o.drafts)} note={o.draftsReady ? `${o.draftsReady} ready to send` : o.drafts ? "Waiting for details" : "All sent"} />
+        <Kpi href="/invoices/sent" icon={WalletIcon} label="Outstanding" value={formatINR(o.outstanding, { decimals: false })} full={formatINR(o.outstanding)} note={`${o.outstandingCount} invoice${o.outstandingCount === 1 ? "" : "s"}`} />
+        <Kpi
+          href="/invoices/overdue"
+          icon={AlarmClockIcon}
+          label="Overdue"
+          value={formatINR(o.overdueAmount, { decimals: false })}
+          full={formatINR(o.overdueAmount)}
+          note={o.overdue ? `${o.overdue} invoice${o.overdue === 1 ? "" : "s"} · oldest ${o.oldestOverdueDays} day${o.oldestOverdueDays === 1 ? "" : "s"}` : "Nothing late"}
+          tone={o.overdue ? "danger" : undefined}
+        />
+        <Kpi
+          href="/payments?range=this_month"
+          icon={CircleCheckBigIcon}
+          label="Collected this month"
+          value={formatINR(o.collectedMonth, { decimals: false })}
+          full={formatINR(o.collectedMonth)}
+          note={change === null ? "From recorded payments" : `${change >= 0 ? "▲" : "▼"} ${Math.abs(change)}% vs ${formatINR(o.collectedLastMonth, { decimals: false })} last month`}
+          tone="good"
+        />
+        <Kpi
+          href="/invoices/paid"
+          icon={TimerIcon}
+          label="Avg. days to get paid"
+          value={o.avgDaysToPay !== null && o.avgDaysSample >= 3 ? `${o.avgDaysToPay} day${o.avgDaysToPay === 1 ? "" : "s"}` : "—"}
+          note={o.avgDaysSample >= 3 ? `Based on ${o.avgDaysSample} invoices paid in 90 days` : "Not enough data yet"}
+        />
       </section>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
@@ -127,11 +172,12 @@ async function OverviewBody() {
           )}
         </Card>
 
-        <Card title="Recent activity" description="What your clients did, and what you sent.">
+        <Card title="Recent activity" description="What your clients did, what you sent and what came in.">
           {activity.length ? (
             <ul className="grid gap-0.5 px-2 py-2">
               {activity.map((a, i) => {
-                const { icon: Icon, verb, tone } = ACTIVITY[a.type] ?? ACTIVITY.sent
+                const { icon: Icon, verb: baseVerb, tone } = ACTIVITY[a.type] ?? ACTIVITY.sent
+                const verb = a.detail ?? baseVerb
                 return (
                   <li key={`${a.invoiceId}-${a.at}-${i}`}>
                     <Link href={`/invoices/${a.invoiceId}`} className="flex items-start gap-2.5 rounded-md px-2 py-1.5 text-[13px] transition-colors hover:bg-muted/50">
@@ -195,6 +241,8 @@ const ACTIVITY: Record<string, { icon: LucideIcon; verb: string; tone: string }>
   viewed: { icon: EyeIcon, verb: "was opened", tone: "bg-violet-500/10 text-violet-600 dark:text-violet-400" },
   downloaded: { icon: DownloadIcon, verb: "was downloaded", tone: "bg-violet-500/10 text-violet-600 dark:text-violet-400" },
   paid: { icon: CircleCheckBigIcon, verb: "was paid", tone: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" },
+  payment: { icon: WalletIcon, verb: "payment received", tone: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" },
+  payment_deleted: { icon: Trash2Icon, verb: "payment deleted", tone: "bg-red-500/10 text-red-600 dark:text-red-400" },
   reminded: { icon: MessageCircleIcon, verb: "reminder sent", tone: "bg-amber-500/10 text-amber-600 dark:text-amber-400" },
   voided: { icon: BanIcon, verb: "was voided", tone: "bg-muted text-muted-foreground" },
   created: { icon: FilePlus2Icon, verb: "was started", tone: "bg-muted text-muted-foreground" },
@@ -205,7 +253,7 @@ function when(iso: string) {
   return dateTime.format(new Date(iso))
 }
 
-function Kpi({ href, icon: Icon, label, value, note, tone }: { href: string; icon: LucideIcon; label: string; value: string; note: string; tone?: "danger" | "good" }) {
+function Kpi({ href, icon: Icon, label, value, full, note, tone }: { href: string; icon: LucideIcon; label: string; value: string; full?: string; note: string; tone?: "danger" | "good" }) {
   return (
     <Link href={href} className="group relative rounded-xl border bg-background p-4 transition-[border-color,box-shadow] hover:border-foreground/20 hover:shadow-[0_6px_24px_-14px_rgb(0_0_0/0.25)]">
       <span className="flex items-center justify-between gap-2">
@@ -214,7 +262,9 @@ function Kpi({ href, icon: Icon, label, value, note, tone }: { href: string; ico
           <Icon className="size-3.5" />
         </span>
       </span>
-      <span className={cn("mt-2 block text-xl font-semibold tracking-[-0.02em] tabular-nums sm:text-2xl", tone === "danger" && "text-red-600 dark:text-red-400")}>{value}</span>
+      <span title={full} className={cn("mt-2 block text-xl font-semibold tracking-[-0.02em] tabular-nums sm:text-2xl", tone === "danger" && "text-red-600 dark:text-red-400")}>
+        {value}
+      </span>
       <span className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
         <span className="truncate">{note}</span>
         <ArrowRightIcon className="size-3 shrink-0 opacity-0 transition-[opacity,transform] group-hover:translate-x-0.5 group-hover:opacity-100" />

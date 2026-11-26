@@ -22,6 +22,7 @@ import {
   Share2Icon,
   TriangleAlertIcon,
   Undo2Icon,
+  WalletIcon,
   WifiOffIcon,
 } from "lucide-react"
 import { FaWhatsapp } from "react-icons/fa6"
@@ -48,10 +49,12 @@ import { SupportButton } from "@/components/support-button"
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { ProBadge, ProMark } from "@/components/app/premium"
 import { InvoiceDocument } from "@/components/landing/invoice-document"
 import { localDateToISO, relativeTime } from "@/lib/invoice/format"
 import { CATEGORY_ORDER, TEMPLATES, templateMeta } from "@/lib/invoice/templates"
 import { ease } from "@/lib/motion"
+import { emailInPlan } from "@/lib/pricing"
 
 import { downloadPdf, printPdf, shareLink, whatsappUrl } from "./actions"
 import { Segmented } from "./fields"
@@ -67,6 +70,7 @@ function crumbFor(status: string) {
 }
 
 export function TopBar({ ed, wide, onSend }: { ed: EditorApi; wide: boolean; onSend: () => void }) {
+  const locked = !emailInPlan(ed.plan)
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
       <SidebarTrigger className="-ml-1 text-foreground/70" />
@@ -112,10 +116,16 @@ export function TopBar({ ed, wide, onSend }: { ed: EditorApi; wide: boolean; onS
           </Tooltip>
         </div>
         <Separator orientation="vertical" className="mx-0.5 hidden h-4 data-vertical:self-center sm:block" />
+        {!ed.guest && ["sent", "viewed", "partially_paid"].includes(ed.invoice.status) && ed.totals.balanceDue > 0 && (
+          <Button variant="outline" className={cn(ctl, "hidden gap-1.5 px-2.5 xl:inline-flex")} onClick={() => ed.setRecordOpen(true)}>
+            <WalletIcon /> Record payment
+          </Button>
+        )}
         <PdfButton ed={ed} />
-        <ShareMenu ed={ed} onEmail={onSend} />
-        <Button className={cn(ctl, "px-3")} onClick={onSend}>
+        <ShareMenu ed={ed} onEmail={onSend} locked={locked} />
+        <Button className={cn(ctl, "px-3")} onClick={onSend} title={locked ? "Emailing invoices is a Pro feature" : undefined} aria-label={locked ? "Send invoice (Pro)" : undefined}>
           <SendIcon /> <span className="hidden sm:inline">Send invoice</span>
+          {locked && <ProMark />}
         </Button>
         <Separator orientation="vertical" className="mx-0.5 hidden h-4 data-vertical:self-center sm:block" />
         <SupportButton section="dashboard" size="compact" />
@@ -376,7 +386,7 @@ function PdfButton({ ed }: { ed: EditorApi }) {
   )
 }
 
-function ShareMenu({ ed, onEmail }: { ed: EditorApi; onEmail: () => void }) {
+function ShareMenu({ ed, onEmail, locked }: { ed: EditorApi; onEmail: () => void; locked: boolean }) {
   const toast = useToast()
   const [busy, setBusy] = React.useState(false)
 
@@ -427,6 +437,7 @@ function ShareMenu({ ed, onEmail }: { ed: EditorApi; onEmail: () => void }) {
         </DropdownMenuItem>
         <DropdownMenuItem onClick={onEmail}>
           <MailIcon /> Email
+          {locked && <ProBadge className="ml-auto" />}
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={() =>

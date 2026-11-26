@@ -4,6 +4,7 @@ import type { Metadata } from "next"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { DashboardUIProvider } from "@/components/dashboard/dashboard-ui"
 import { NavUserSkeleton } from "@/components/dashboard/nav-user"
+import { SidebarUpgrade } from "@/components/dashboard/sidebar-upgrade"
 import { SidebarUser } from "@/components/dashboard/sidebar-user"
 import { ToastProvider } from "@/components/invoice-editor/toast"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
@@ -32,6 +33,11 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               user={
                 <Suspense fallback={<NavUserSkeleton />}>
                   <SidebarUser />
+                </Suspense>
+              }
+              upgrade={
+                <Suspense>
+                  <SidebarUpgrade />
                 </Suspense>
               }
             />

@@ -9,7 +9,8 @@ import { KEYS, readLocal, writeLocal } from "@/lib/client/local"
 import { clearGuestWork, peekGuestWork, registerGuestWork } from "@/lib/client/handoff"
 import { claimLocalData } from "@/lib/client/owner"
 import { LIMITS } from "@/lib/invoice/config"
-import { EMPTY_SETTINGS, type WorkspaceSettings } from "@/lib/data/types"
+import { EMPTY_SETTINGS, type PaymentResult, type PlanSummary, type WorkspaceSettings } from "@/lib/data/types"
+import { formatINR } from "@/lib/billing/money"
 import { fetchWorkspace, importLocalData, invoicesChanged, onSettingsChanged, saveClientRemote, saveItemRemote, saveSettingsRemote } from "@/lib/client/workspace"
 import { createBlankInvoice, createInvoice, partyFromClient, SEED_BUSINESS, SEED_CATALOG, SEED_CLIENTS, type CatalogItem, type Client } from "@/lib/invoice/defaults"
 import { localDateToISO, nextInvoiceNumber, uid } from "@/lib/invoice/format"
@@ -75,6 +76,8 @@ export function useEditor(opts: EditorOptions = {}) {
   const [accountPrompt, setAccountPrompt] = React.useState<AccountReason | null>(null)
   /** Signed-in defaults: business, payment, terms and signature. */
   const [defaults, setDefaults] = React.useState<WorkspaceSettings>(EMPTY_SETTINGS)
+  /** Signed-in: the plan and this month's email use (emailing is Pro). Guests: null. */
+  const [plan, setPlan] = React.useState<PlanSummary | null>(null)
   /** The invoice in the URL doesn't exist (or isn't yours). */
   const [notFound, setNotFound] = React.useState(false)
   /** Not saved yet: the URL moves from /create to /invoices/<id> on the first save. */
@@ -158,6 +161,7 @@ export function useEditor(opts: EditorOptions = {}) {
       setClients(ws?.clients ?? [])
       setCatalog(ws?.items ?? [])
       setDefaults(settings)
+      setPlan(ws?.plan ?? null)
       setViewState(savedView)
       setSave(dirty ? { status: "saving" } : isNew.current ? { status: "idle" } : { status: "saved", savedAt: Date.now() })
       setServerDirty(dirty)
@@ -224,15 +228,17 @@ export function useEditor(opts: EditorOptions = {}) {
         router.replace(`/login?next=${encodeURIComponent(`/invoices/${inv.id}`)}`)
         return
       }
-      const body = (await res.json().catch(() => ({}))) as { error?: string; status?: Invoice["status"] }
+      const body = (await res.json().catch(() => ({}))) as { error?: string; status?: Invoice["status"]; amountPaid?: number }
       if (!res.ok) throw Object.assign(new Error(body.error ?? `Error ${res.status}`), { http: true })
       setSave({ status: "saved", savedAt: Date.now() })
       setServerDirty(false)
       // the server is up to date: drop the offline copy, unless there are newer edits
       if (latest.current === inv) void idb.del(`invoice:${inv.id}`)
-      // paid / part paid follow the amount received
+      // paid / part paid and the amount received come from recorded payments, on the server
       const stored = body.status
-      if (stored && stored !== inv.status) setHist((h) => ({ ...h, present: { ...h.present, status: stored } }))
+      const received = typeof body.amountPaid === "number" ? body.amountPaid : undefined
+      if ((stored && stored !== inv.status) || (received !== undefined && received !== inv.payment.amountPaid))
+        setHist((h) => ({ ...h, present: { ...h.present, ...(stored ? { status: stored } : {}), ...(received !== undefined ? { payment: { ...h.present.payment, amountPaid: received } } : {}) } }))
       if (isNew.current) {
         // saved for the first time: give it its own address, so a reload opens it again
         isNew.current = false
@@ -262,6 +268,12 @@ export function useEditor(opts: EditorOptions = {}) {
     }
     setServerDirty(true)
     const local = setTimeout(() => void idb.set(`invoice:${invoice.id}`, invoice), 250)
+    // payments already recorded set a floor under the total: don't send a save the server will refuse
+    const received = invoice.payment.amountPaid
+    if (received > 0 && computeInvoiceTotals(invoice).total < received) {
+      setSave((s) => ({ ...s, status: "error", error: `Total can't be less than the ${formatINR(received)} already received.` }))
+      return () => clearTimeout(local)
+    }
     const remote = setTimeout(() => void saveNow(invoice), 800)
     return () => {
       clearTimeout(local)
@@ -307,6 +319,32 @@ export function useEditor(opts: EditorOptions = {}) {
   const retrySave = React.useCallback(() => {
     if (!guestRef.current) void saveNow(latest.current)
   }, [saveNow])
+
+  /** Saves edits the server hasn't seen yet, before leaving the editor (e.g. for /pricing). */
+  const flush = React.useCallback(async () => {
+    if (!guestRef.current && serverDirty) await saveNow(latest.current)
+  }, [serverDirty, saveNow])
+
+  /* ----------------------------- payments ----------------------------- */
+  const [recordOpen, setRecordOpenState] = React.useState(false)
+  const [paymentsVersion, setPaymentsVersion] = React.useState(0)
+  /** Opening saves pending edits first, so the payment is checked against the latest total. */
+  const setRecordOpen = React.useCallback(
+    (open: boolean) => {
+      if (!open) return setRecordOpenState(false)
+      void flush().finally(() => setRecordOpenState(true))
+    },
+    [flush]
+  )
+  /** A payment was recorded, edited or deleted: reflect the server's numbers without an undo step. */
+  const applyPayment = React.useCallback((r: PaymentResult) => {
+    setHist((h) => ({ ...h, present: { ...h.present, status: r.invoice.status, payment: { ...h.present.payment, amountPaid: r.invoice.amountPaid } } }))
+    setPaymentsVersion((v) => v + 1)
+    invoicesChanged()
+  }, [])
+
+  /** One more email sent this month. */
+  const countEmail = React.useCallback(() => setPlan((p) => p && { ...p, emails: { ...p.emails, used: p.emails.used + 1 } }), [])
 
   /* -------------------------- derived values ------------------------ */
   const totals = React.useMemo(() => computeInvoiceTotals(invoice), [invoice])
@@ -420,6 +458,13 @@ export function useEditor(opts: EditorOptions = {}) {
     canRedo: hist.future.length > 0,
     save,
     retrySave,
+    flush,
+    plan,
+    countEmail,
+    recordOpen,
+    setRecordOpen,
+    applyPayment,
+    paymentsVersion,
     takenNumbers,
     clients,
     saveClient,

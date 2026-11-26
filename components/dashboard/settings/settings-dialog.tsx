@@ -1,10 +1,12 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { AnimatePresence, motion } from "motion/react"
 import { BellIcon, Building2Icon, CreditCardIcon, KeyboardIcon, SlidersHorizontalIcon, UserRoundIcon, UsersIcon } from "lucide-react"
 import { cn } from "cn"
 
+import { ProBadge } from "@/components/app/premium"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { ease, spring } from "@/lib/motion"
 
@@ -22,9 +24,8 @@ const ACCOUNT: NavEntry[] = [
 ]
 const APP: NavEntry[] = [{ id: "preferences", label: "Preferences", icon: SlidersHorizontalIcon }]
 
-/** Not in the free first version; listed so people know they're coming. */
+/** Not built yet; listed so people know they're coming. */
 const LATER = [
-  { label: "Billing & plan", icon: CreditCardIcon, tag: "Free" },
   { label: "Team members", icon: UsersIcon, tag: "Soon" },
   { label: "Notifications", icon: BellIcon, tag: "Soon" },
 ]
@@ -78,6 +79,11 @@ function Body({ tab, onTabChange, onOpenShortcuts, onOpenFeedback }: { tab: Sett
             <span className="whitespace-nowrap">Keyboard shortcuts</span>
           </button>
           <div className="mt-3 hidden border-t border-dashed pt-3 sm:grid sm:gap-0.5">
+            <Link href="/pricing" className={navCls}>
+              <CreditCardIcon className="size-4 shrink-0" />
+              <span className="whitespace-nowrap">Billing & plan</span>
+              <ProBadge className="ml-auto" />
+            </Link>
             {LATER.map((l) => (
               <div key={l.label} className={cn(navCls, "cursor-default opacity-55 hover:text-muted-foreground")} aria-disabled>
                 <l.icon className="size-4 shrink-0" />

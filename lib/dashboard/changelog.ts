@@ -13,6 +13,34 @@ export type ChangelogEntry = {
 
 export const changelog: ChangelogEntry[] = [
   {
+    id: "2026-11-payments",
+    date: "2026-11-25",
+    tag: "New",
+    title: "Payments, receipts and client balances",
+    body: "Record what you've been paid, part or whole, and PrettyBills keeps every balance, status and receipt right for you.",
+    points: [
+      "Record payments by UPI, cash, bank transfer, cheque or card; invoices move to Partially paid and Paid by themselves",
+      "A numbered receipt (RCPT/26-27/001) for every payment, in your invoice's design, to download or share on WhatsApp",
+      "Payments page with filters and a CSV export for your accountant",
+      "Each client's billed, received, outstanding and overdue, plus a statement of account",
+      "Pro: receipts emailed to your client as you record the payment",
+    ],
+  },
+  {
+    id: "2026-11-pro",
+    date: "2026-11-25",
+    tag: "New",
+    title: "PrettyBills Pro",
+    body: "Everything you use today stays free. Pro adds one thing that costs us money: emailing invoices to clients straight from PrettyBills.",
+    points: [
+      "Email invoices in one click, with the PDF attached and replies going to you",
+      "Up to 1,000 invoice emails a month",
+      "No PrettyBills branding in your emails",
+      "Coming to Pro: automatic reminders, scheduled and recurring sends",
+      "See the plans at /pricing",
+    ],
+  },
+  {
     id: "2026-11-workspace",
     date: "2026-11-25",
     tag: "New",
@@ -22,7 +50,7 @@ export const changelog: ChangelogEntry[] = [
       "Dashboard: what you're owed, what's overdue, and what clients opened",
       "Drafts, Sent, Overdue and Paid, each with the actions that matter there",
       "Mark invoices paid and send WhatsApp reminders from the list",
-      "Clients and Items & services you can manage in one place",
+      "A Clients page: everyone you bill, and what each one owes",
       "A Templates gallery to start an invoice from any design",
     ],
   },
