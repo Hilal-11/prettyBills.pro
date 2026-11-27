@@ -75,7 +75,7 @@ export function Navbar() {
               Create free invoice
               <ArrowNudge className="hidden sm:block" />
             </CtaLink>
-            {/* <SupportButton section="navbar" size="nav" className="hidden md:inline-flex" /> */}
+            <SupportButton section="navbar" size="nav" className="hidden md:inline-flex" />
             <Button
               variant="ghost"
               size="icon-sm"
@@ -124,9 +124,9 @@ export function Navbar() {
                   </Link>
                   <ThemeToggle />
                 </motion.li>
-                {/* <motion.li variants={{ hidden: { opacity: 0, y: -4 }, show: { opacity: 1, y: 0 } }} className="pt-2">
+                <motion.li variants={{ hidden: { opacity: 0, y: -4 }, show: { opacity: 1, y: 0 } }} className="pt-2">
                   <SupportButton section="navbar_mobile" size="nav" className="w-full" />
-                </motion.li> */}
+                </motion.li>
               </motion.ul>
             </motion.div>
           )}
