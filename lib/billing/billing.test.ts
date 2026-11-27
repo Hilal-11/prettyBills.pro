@@ -2,7 +2,10 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
+import { createHmac } from "node:crypto"
+
 import { BOM, csvAmount, csvCell, csvRow } from "./csv.ts"
+import { fromUnix, razorpayProblems, verifyCheckoutSignature, verifyWebhookSignature } from "./razorpay.ts"
 import { parseFilters, filtersQuery } from "./filters.ts"
 import { addDays, daysBetween, formatDate, fyLabel, fyRange, isISODate, presetRange, todayIST } from "./dates.ts"
 import { billingCodeOf, billingMessage } from "./errors.ts"
@@ -190,4 +193,30 @@ test("filters round-trip through the URL", () => {
   assert.deepEqual([c.preset, c.from, c.to], ["custom", "2026-11-01", "2026-11-15"])
   assert.equal(parseFilters({}, "2026-11-25").preset, "this_month")
   assert.deepEqual(presetRange("last_30", "2026-11-25"), { from: "2026-10-27", to: "2026-11-25" })
+})
+
+test("razorpay: checkout and webhook signatures", () => {
+  const secret = "test_secret_123"
+  const sig = createHmac("sha256", secret).update("pay_1|sub_1").digest("hex")
+  assert.equal(verifyCheckoutSignature({ paymentId: "pay_1", subscriptionId: "sub_1", signature: sig }, secret), true)
+  assert.equal(verifyCheckoutSignature({ paymentId: "pay_2", subscriptionId: "sub_1", signature: sig }, secret), false)
+  assert.equal(verifyCheckoutSignature({ paymentId: "pay_1", subscriptionId: "sub_1", signature: sig }, "other"), false)
+  assert.equal(verifyCheckoutSignature({ paymentId: "pay_1", subscriptionId: "sub_1", signature: "" }, secret), false)
+  const body = '{"event":"subscription.charged"}'
+  const wsig = createHmac("sha256", "whsec").update(body).digest("hex")
+  assert.equal(verifyWebhookSignature(body, wsig, "whsec"), true)
+  assert.equal(verifyWebhookSignature(body + " ", wsig, "whsec"), false)
+  assert.equal(verifyWebhookSignature(body, null, "whsec"), false)
+  assert.equal(verifyWebhookSignature(body, wsig, ""), false)
+  assert.equal(fromUnix(1764028800), "2025-11-25T00:00:00.000Z")
+  assert.equal(fromUnix(null), null)
+})
+
+test("razorpay: config mix-ups are caught", () => {
+  const ok = { keyId: "rzp_test_abc", keySecret: "s3cr3tValue", planMonthly: "plan_A", planYearly: "plan_B", webhookSecret: "w", serviceRoleKey: "k" }
+  assert.deepEqual(razorpayProblems(ok, { plan: "monthly", webhook: true }), [])
+  assert.match(razorpayProblems({ ...ok, keySecret: ok.keyId }, { plan: "monthly" }).join(), /key id, not the secret/)
+  assert.match(razorpayProblems({ ...ok, planMonthly: "sub_X" }, { plan: "monthly" }).join(), /subscription id/)
+  assert.match(razorpayProblems({ ...ok, planYearly: undefined }, { plan: "yearly" }).join(), /RAZORPAY_PLAN_ID_YEARLY is missing/)
+  assert.deepEqual(razorpayProblems({ ...ok, planYearly: undefined }, { plan: "monthly" }), [])
 })

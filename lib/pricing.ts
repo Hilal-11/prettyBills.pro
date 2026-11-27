@@ -38,7 +38,7 @@ export const PLANS = {
     interval: "month",
     priceINR: 149,
     launchPriceINR: 99,
-    razorpayPlanId: process.env.RZP_PLAN_PRO_MONTHLY,
+    razorpayPlanId: process.env.RAZORPAY_PLAN_ID_MONTHLY ?? process.env.RZP_PLAN_PRO_MONTHLY,
     limits: { emailsPerMonth: 1000 }, // fair use
     features: PRO_FEATURES,
   },
@@ -49,7 +49,7 @@ export const PLANS = {
     priceINR: 1199,
     launchPriceINR: 799,
     savingsLabel: "Save 33%",
-    razorpayPlanId: process.env.RZP_PLAN_PRO_YEARLY,
+    razorpayPlanId: process.env.RAZORPAY_PLAN_ID_YEARLY ?? process.env.RZP_PLAN_PRO_YEARLY,
     limits: { emailsPerMonth: 1000 },
     features: PRO_FEATURES,
   },

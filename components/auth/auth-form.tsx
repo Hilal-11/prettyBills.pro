@@ -67,6 +67,12 @@ export function AuthForm({ initialMode = "login" }: { initialMode?: Mode }) {
 
   // errors handed back by /auth/callback, e.g. an expired email link
   const callbackError = useSearchParam("error")
+  // the checkout dialog hands over the email someone typed there
+  const presetEmail = useSearchParam("email")
+  React.useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time prefill from the URL
+    if (presetEmail && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(presetEmail)) setEmail((e) => e || presetEmail.slice(0, 254))
+  }, [presetEmail])
   React.useEffect(() => {
     if (!callbackError) return
     // drop ?error= so a refresh doesn't show it again

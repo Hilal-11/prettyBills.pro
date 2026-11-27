@@ -9,6 +9,7 @@ import { Footer } from "@/components/landing/footer"
 import { Navbar } from "@/components/landing/navbar"
 import { ArrowNudge, CtaLink } from "@/components/landing/primitives"
 import { CompareTable } from "@/components/pricing/compare"
+import { ResumeCheckout } from "@/components/pricing/plan-cta"
 import { PlanCards, PlanFacts } from "@/components/pricing/plans"
 import { buttonVariants } from "@/components/ui/button"
 import { emailLimitOf, inr, LAUNCH_OFFER, priceOf, yearlyPerMonth } from "@/lib/pricing"
@@ -49,6 +50,9 @@ export default function PricingPage({ searchParams }: PageProps<"/pricing">) {
 
             <Suspense>
               <FromEditor searchParams={searchParams} />
+            </Suspense>
+            <Suspense>
+              <ResumeCheckout searchParams={searchParams} />
             </Suspense>
 
             <div id="plans" className="mt-14 scroll-mt-28 sm:mt-16">
