@@ -3,11 +3,11 @@
 import * as React from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { ArrowUpRightIcon, ChevronRightIcon, PlusIcon, SearchIcon } from "lucide-react"
+import { ArrowUpRightIcon, ChevronRightIcon, CrownIcon, PlusIcon, SearchIcon } from "lucide-react"
 import { motion } from "motion/react"
 import { cn } from "cn"
 
-import { Button, buttonVariants } from "@/components/ui/button"
+import { buttonVariants } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import {
   Sidebar,
@@ -27,7 +27,6 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { APP_NAME, BrandMark } from "@/components/brand"
-import { useDashboardUI } from "@/components/dashboard/dashboard-ui"
 import { useOverview } from "@/lib/client/use-overview"
 import { EMPTY_OVERVIEW, type Overview } from "@/lib/data/types"
 import { navGroups, type NavChild, type NavItem } from "@/lib/dashboard/data"
@@ -38,10 +37,10 @@ const isOn = (pathname: string, href: string, exact = false) => pathname === hre
 
 /**
  * Left sidebar: the app's real pages, with the active one highlighted by a
- * pill that slides between items. `user` is the profile button slot,
- * streamed in by the server layout.
+ * pill that slides between items. `user` is the profile button slot and
+ * `upgrade` the plan card above it, both streamed in by the server layout.
  */
-export function AppSidebar({ user }: { user: React.ReactNode }) {
+export function AppSidebar({ user, upgrade }: { user: React.ReactNode; upgrade?: React.ReactNode }) {
   const router = useRouter()
   const { isMobile, setOpenMobile } = useSidebar()
   // on phones the sidebar is a sheet: close it once a page is chosen
@@ -87,7 +86,7 @@ export function AppSidebar({ user }: { user: React.ReactNode }) {
       </SidebarContent>
 
       <SidebarFooter className="gap-2">
-        <UpgradeCard />
+        {upgrade}
         {user}
       </SidebarFooter>
       <SidebarRail />
@@ -156,6 +155,7 @@ function NavLink({ item, active, onNavigate }: { item: NavItem; active: boolean;
         <Icon />
         <span>{item.label}</span>
         {item.external && <ArrowUpRightIcon className="ml-auto size-3.5! opacity-60" />}
+        {item.pro && <CrownIcon aria-label="Pro" className="ml-auto size-3.5! text-amber-500 group-data-[collapsible=icon]:hidden" />}
       </SidebarMenuButton>
     </SidebarMenuItem>
   )
@@ -175,10 +175,10 @@ function CollapsibleNavItem({ item, pathname, overview, onNavigate }: { item: Na
   const Icon = item.icon
   const inside = !!item.href && isOn(pathname, item.href)
   const { state, setOpen } = useSidebar()
-  const total = overview.all
+  const total = item.count ? (overview[item.count] ?? 0) : 0
 
   return (
-    <Collapsible defaultOpen render={<SidebarMenuItem />} className="group/collapsible">
+    <Collapsible defaultOpen={item.defaultOpen !== false || inside} render={<SidebarMenuItem />} className="group/collapsible">
       <CollapsibleTrigger
         render={
           <SidebarMenuButton
@@ -231,16 +231,3 @@ function BrandHeader() {
   )
 }
 
-/** Everything is free; this asks what people want next instead of selling. */
-function UpgradeCard() {
-  const ui = useDashboardUI()
-  return (
-    <div className="rounded-lg border bg-background/70 p-3 group-data-[collapsible=icon]:hidden">
-      <p className="text-[13px] font-semibold">Free, and getting better</p>
-      <p className="mt-0.5 text-xs text-muted-foreground">Quotes, recurring invoices and online payments are next. What should we build first?</p>
-      <Button variant="outline" size="sm" className="mt-2.5 h-7 w-full text-xs" onClick={() => ui.openFeedback("idea")}>
-        Tell us
-      </Button>
-    </div>
-  )
-}

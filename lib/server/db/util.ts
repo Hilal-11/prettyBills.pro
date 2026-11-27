@@ -1,5 +1,7 @@
 import "server-only"
 
+import { billingCodeOf, billingMessage } from "@/lib/billing/errors"
+
 /** The business calendar. PrettyBills is for India, so "today" and "overdue" follow IST. */
 export const APP_TIME_ZONE = "Asia/Kolkata"
 
@@ -25,11 +27,16 @@ type PgError = { code?: string; message: string; details?: string | null; hint?:
 export class DbError extends Error {
   code?: string
   status: number
+  /** Set for the payment rules the database enforces (OVERPAYMENT, HAS_PAYMENTS…). */
+  billing: string | null
+  detail?: string
   constructor(error: PgError) {
     super(error.message)
     this.name = "DbError"
     this.code = error.code
     this.status = statusFor(error)
+    this.billing = billingCodeOf(error)
+    this.detail = error.details ?? undefined
   }
 }
 
@@ -42,7 +49,10 @@ function statusFor(error: PgError) {
     case "23514":
     case "22P02":
     case "22023":
+    case "P0001":
       return 422
+    case "23503":
+      return 409
     case "42P01":
     case "PGRST205":
     case "PGRST202":
@@ -55,6 +65,8 @@ function statusFor(error: PgError) {
 /** User-facing message for a failed database call. */
 export function dbMessage(error: unknown) {
   if (error instanceof DbError) {
+    if (error.billing) return billingMessage(error.billing, error.detail)
+    if (error.code === "23503") return billingMessage("HAS_PAYMENTS")
     if (error.status === 409) return "That invoice number is already used. Choose another."
     if (error.status === 404) return "Not found"
     if (error.status === 422) return "Some details aren't valid. Check the invoice and try again."

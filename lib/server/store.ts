@@ -2,6 +2,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 
 import { randomToken } from "@/lib/invoice/format"
+import type { ReceiptView } from "@/lib/data/types"
 import type { Invoice } from "@/lib/invoice/types"
 
 /**
@@ -45,6 +46,32 @@ export async function takePrintJob(token: string) {
   const job = await readJSON<{ invoice: Invoice; expires: number }>(file("print", token))
   if (!job || job.expires < Date.now()) return null
   return job.invoice
+}
+
+/** Same as an invoice print job, for a payment receipt (print/receipt/<token>). */
+export async function putReceiptJob(view: ReceiptView) {
+  const token = randomToken(18)
+  await writeJSON(file("print", token), { receipt: view, expires: Date.now() + 2 * 60_000 })
+  return token
+}
+
+export async function takeReceiptJob(token: string) {
+  const job = await readJSON<{ receipt: ReceiptView; expires: number }>(file("print", token))
+  if (!job?.receipt || job.expires < Date.now()) return null
+  return job.receipt
+}
+
+/** Any other printable document (statements): stored with its kind, read back only as that kind. */
+export async function putJob(kind: string, data: unknown) {
+  const token = randomToken(18)
+  await writeJSON(file("print", token), { kind, data, expires: Date.now() + 2 * 60_000 })
+  return token
+}
+
+export async function takeJob<T>(kind: string, token: string) {
+  const job = await readJSON<{ kind: string; data: T; expires: number }>(file("print", token))
+  if (!job || job.kind !== kind || job.expires < Date.now()) return null
+  return job.data
 }
 
 export async function dropPrintJob(token: string) {

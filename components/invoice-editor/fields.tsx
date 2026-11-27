@@ -175,6 +175,8 @@ export function DateField({
   format = "DD MMM YYYY",
   error,
   min,
+  max,
+  id,
 }: {
   field: string
   value: string
@@ -182,6 +184,8 @@ export function DateField({
   format?: DateFormat
   error?: string
   min?: string
+  max?: string
+  id?: string
 }) {
   const [open, setOpen] = React.useState(false)
   return (
@@ -190,6 +194,7 @@ export function DateField({
         render={
           <button
             type="button"
+            id={id}
             data-field={field}
             aria-haspopup="dialog"
             className={cn(
@@ -209,7 +214,7 @@ export function DateField({
           weekStartsOn={1}
           selected={isoToLocalDate(value)}
           defaultMonth={isoToLocalDate(value)}
-          disabled={min ? { before: isoToLocalDate(min)! } : undefined}
+          disabled={min || max ? [...(min ? [{ before: isoToLocalDate(min)! }] : []), ...(max ? [{ after: isoToLocalDate(max)! }] : [])] : undefined}
           onSelect={(d) => {
             if (d) onChange(localDateToISO(d))
             setOpen(false)

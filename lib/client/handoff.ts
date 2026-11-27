@@ -25,20 +25,27 @@ export function registerGuestWork(fn: NonNullable<typeof provider>) {
 }
 
 /**
- * Parks the guest's invoice (only if they changed something) and returns the
- * auth page URL. With work parked, they come back to /create, where it's saved
- * into their account; otherwise to `next`.
+ * Parks the guest's invoice (only if they changed something) so the next
+ * /create load picks it up. Returns whether anything was parked.
+ */
+export function parkGuestWork() {
+  const work = provider?.()
+  if (!work?.edited) return false
+  try {
+    const data = { invoice: work.invoice, clients: work.clients, catalog: work.catalog, expires: Date.now() + TTL }
+    localStorage.setItem(KEY, JSON.stringify(data))
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Parks the guest's work and returns the auth page URL. With work parked,
+ * they come back to /create, where it's saved into their account; otherwise to `next`.
  */
 export function authHref(mode: "login" | "signup", next = "/dashboard") {
-  const work = provider?.()
-  let target = next
-  if (work?.edited) {
-    try {
-      const data = { invoice: work.invoice, clients: work.clients, catalog: work.catalog, expires: Date.now() + TTL }
-      localStorage.setItem(KEY, JSON.stringify(data))
-      target = "/create"
-    } catch {}
-  }
+  const target = parkGuestWork() ? "/create" : next
   return `/${mode}?next=${encodeURIComponent(target)}`
 }
 

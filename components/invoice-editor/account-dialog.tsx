@@ -21,7 +21,7 @@ const copy: Record<AccountReason, { icon: typeof SendIcon; title: string; body: 
   send: {
     icon: SendIcon,
     title: "Log in to send by email",
-    body: "Emails go out from your account, so clients can reply to you and you can see when they open it.",
+    body: "Emails go out from your account, so clients can reply to you. Emailing is part of Pro; sharing a link is free.",
   },
   share: {
     icon: LinkIcon,
@@ -35,7 +35,7 @@ const copy: Record<AccountReason, { icon: typeof SendIcon; title: string; body: 
   },
 }
 
-const perks = ["Autosaves as you type, on every device", "Send by email and see when it's viewed", "Reuse your clients, items and business details"]
+const perks = ["Autosaves as you type, on every device", "Share a link and see when it's viewed", "Reuse your clients, items and business details"]
 
 /** Shown to guests at the moments an account matters. Whatever they typed comes along. */
 export function AccountDialog({ ed }: { ed: EditorApi }) {

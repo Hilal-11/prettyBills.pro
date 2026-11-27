@@ -58,6 +58,13 @@ const fontFamily: Record<Font, string> = {
   mono: "var(--font-geist-mono), ui-monospace, monospace",
 }
 
+/** A template's accent colour and typeface, for documents that follow its look (payment receipts). */
+export function templateLook(slug: string): { accent: string; font: string } {
+  const d = designs[slug]
+  if (!d || typeof d === "string") return { accent: "#111318", font: fontFamily.sans }
+  return { accent: d.accent, font: fontFamily[d.font] }
+}
+
 type Qr = ReturnType<typeof qrPath>
 const numeric = "tabular-nums [font-feature-settings:'tnum']"
 

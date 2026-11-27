@@ -104,7 +104,7 @@ export default function HelpPage() {
         <H3>With a free account</H3>
         <List>
           <li>Invoices save themselves as you type, and open on any device.</li>
-          <li>Send by email, share a link, and see when your client opens it.</li>
+          <li>Share a link and see when your client opens it. With Pro, email invoices straight from PrettyBills.</li>
           <li>Your business details, payment details, terms and signature are filled in on every new invoice.</li>
         </List>
         <Callout title="Started as a guest?">
@@ -187,7 +187,7 @@ export default function HelpPage() {
             <strong>Link and WhatsApp</strong> (account): a private link to a web page of the invoice your client can view and download. You can switch the link off at any time.
           </li>
           <li>
-            <strong>Email</strong> (account): send from the editor with the PDF attached and the link included. Replies go to your business email.
+            <strong>Email</strong> (<Link href="/pricing">Pro</Link>): send from the editor with the PDF attached and the link included. Replies go to your business email.
           </li>
         </List>
         <p>When your client opens a link, the invoice is marked <strong>Viewed</strong>.</p>
@@ -241,7 +241,7 @@ export default function HelpPage() {
 
       <DocSection id="faq" title="Questions">
         <div className="grid gap-2">
-          <Faq q="Is PrettyBills really free?">Yes. Making, downloading, sending and sharing invoices is free. A paid plan may come later for teams and extras, and what&apos;s free now stays free.</Faq>
+          <Faq q="Is PrettyBills really free?">Yes. Making, downloading and sharing invoices (by link or WhatsApp) is free, with no limit. Emailing invoices from PrettyBills is part of <Link href="/pricing">Pro</Link>, because every email costs us money to send.</Faq>
           <Faq q="Do I need a GSTIN?">No. Without one, title the invoice Bill of Supply and don&apos;t charge GST. Add a GSTIN any time.</Faq>
           <Faq q="Can I use it on my phone?">Yes. On a small screen, switch between the form and the preview with the tabs at the top.</Faq>
           <Faq q="Can I change an invoice after sending it?">Yes. Edit it as usual and the shared link shows the latest version. If you emailed a PDF, send the corrected one again.</Faq>

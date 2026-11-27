@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { LoaderIcon, RotateCcwIcon, SendIcon, TriangleAlertIcon } from "lucide-react"
+import Link from "next/link"
+import { CrownIcon, LoaderIcon, RotateCcwIcon, SendIcon, TriangleAlertIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -11,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { formatDate } from "@/lib/invoice/format"
 import { formatMoney } from "@/lib/invoice/totals"
 import { RX } from "@/lib/invoice/validate"
+import { upgradeHref } from "@/lib/pricing"
 
 import { sendInvoice } from "./actions"
 import { Field } from "./fields"
@@ -47,7 +49,7 @@ export function SendDialog({ ed, open, onOpenChange }: { ed: EditorApi; open: bo
 
   const [form, setForm] = React.useState(defaults)
   const [showCc, setShowCc] = React.useState(false)
-  const [state, setState] = React.useState<{ busy: boolean; error?: string }>({ busy: false })
+  const [state, setState] = React.useState<{ busy: boolean; error?: string; upgrade?: boolean }>({ busy: false })
   const [lastOpen, setLastOpen] = React.useState(false)
   const messageRef = React.useRef<HTMLTextAreaElement>(null)
   if (open !== lastOpen) {
@@ -96,16 +98,17 @@ export function SendDialog({ ed, open, onOpenChange }: { ed: EditorApi; open: bo
         copyMe: form.copyMe,
       })
       ed.markSent({ status: res.status, sentAt: res.sentAt, ...(res.publicToken ? { publicToken: res.publicToken } : {}) })
+      if (res.delivered) ed.countEmail()
       onOpenChange(false)
       toast({
-        title: res.delivered ? `Invoice sent to ${to[0]}` : "Saved to the local outbox",
-        description: res.delivered ? res.summary : "Email isn't set up yet (RESEND_API_KEY). The invoice is marked Sent.",
+        title: res.delivered ? `Invoice emailed to ${to[0]}${to.length > 1 ? ` and ${to.length - 1} more` : ""}` : "Saved to the local outbox",
+        description: res.delivered ? `${res.summary}. Replies go to your business email.` : "Email isn't set up on this server, so nothing was delivered. The invoice is marked Sent.",
         tone: "success",
         duration: 7000,
         action: res.publicToken ? { label: "View", onClick: () => window.open(`/i/${res.publicToken}`, "_blank", "noopener") } : undefined,
       })
     } catch (error) {
-      setState({ busy: false, error: (error as Error).message })
+      setState({ busy: false, error: (error as Error).message, upgrade: !!(error as { upgrade?: string }).upgrade })
     }
   }
 
@@ -174,12 +177,25 @@ export function SendDialog({ ed, open, onOpenChange }: { ed: EditorApi; open: bo
           {state.error && (
             <p role="alert" className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
               <TriangleAlertIcon className="mt-px size-3.5 shrink-0" />
-              {state.error}
+              <span>
+                {state.error}
+                {state.upgrade && (
+                  <Link href={upgradeHref("email", typeof window === "undefined" ? undefined : window.location.pathname)} className="ml-1 font-semibold underline underline-offset-2">
+                    See Pro plans
+                  </Link>
+                )}
+              </span>
             </p>
           )}
         </div>
 
-        <DialogFooter className="-mx-5 -mb-5 p-4">
+        <DialogFooter className="-mx-5 -mb-5 p-4 sm:items-center">
+          {ed.plan?.pro && (
+            <span className="mr-auto hidden items-center gap-1.5 text-xs text-muted-foreground sm:inline-flex">
+              <CrownIcon className="size-3.5 text-amber-500" />
+              {ed.plan.emails.used.toLocaleString("en-IN")} of {ed.plan.emails.limit.toLocaleString("en-IN")} emails this month
+            </span>
+          )}
           <Button variant="outline" className="h-9" disabled={state.busy} onClick={() => onOpenChange(false)}>
             Cancel
           </Button>

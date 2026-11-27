@@ -5,11 +5,14 @@ import { motion } from "motion/react"
 import { ChevronUpIcon, InfoIcon, SendIcon } from "lucide-react"
 import { cn } from "cn"
 
+import { ProMark } from "@/components/app/premium"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { formatMoney } from "@/lib/invoice/totals"
+import { emailInPlan } from "@/lib/pricing"
 import { stagger, rise } from "@/lib/motion"
 
+import { PaymentsCard } from "./payments-card"
 import { BusinessSection } from "./sections/business"
 import { ClientSection } from "./sections/client"
 import { DetailsSection } from "./sections/details"
@@ -36,6 +39,14 @@ export function EditPanel({ ed, onSend, onSaveDraft, wide }: { ed: EditorApi; on
               </span>
             </div>
           )}
+
+          {ed.invoice.payment.amountPaid > 0 && ed.totals.total < ed.invoice.payment.amountPaid && (
+            <div role="alert" className="mt-3 rounded-lg border border-destructive/30 bg-destructive/8 px-3 py-2 text-xs text-destructive">
+              Total can&apos;t be less than the {formatMoney(ed.invoice.payment.amountPaid)} already received. Changes aren&apos;t saved until it is, or delete a payment first.
+            </div>
+          )}
+
+          <PaymentsCard ed={ed} />
 
           <motion.div initial="hidden" animate="show" variants={stagger} className="mt-3 space-y-2.5">
             {[BusinessSection, ClientSection, DetailsSection, ItemsSection, TaxSection, PaymentSection, NotesSection, SignatureSection, MoreSection].map((S, i) => (
@@ -95,8 +106,9 @@ function StickyFooter({ ed, onSend, onSaveDraft }: { ed: EditorApi; onSend: () =
       <Button variant="outline" className="h-8 shrink-0 text-[13px]" onClick={onSaveDraft}>
         Save draft
       </Button>
-      <Button className="h-8 shrink-0 text-[13px]" onClick={onSend}>
+      <Button className="h-8 shrink-0 text-[13px]" onClick={onSend} title={emailInPlan(ed.plan) ? undefined : "Emailing invoices is a Pro feature"}>
         <SendIcon /> Send invoice
+        {!emailInPlan(ed.plan) && <ProMark />}
       </Button>
     </div>
   )

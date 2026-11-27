@@ -15,13 +15,18 @@ import {
   LoaderCircleIcon,
   MoreHorizontalIcon,
   PencilLineIcon,
-  RotateCcwIcon,
+  SendIcon,
   Trash2Icon,
+  WalletIcon,
 } from "lucide-react"
 import { FaWhatsapp } from "react-icons/fa6"
 import { cn } from "cn"
 
-import { deleteDraftAction, duplicateAction, markPaid, markUnpaid, reminderAction, shareLinkAction, voidAction } from "@/app/(app)/invoices/actions"
+import { deleteDraftAction, duplicateAction, reminderAction, shareLinkAction, voidAction } from "@/app/(app)/invoices/actions"
+import { markSentAction, payInFullAction, paymentContextAction } from "@/app/(app)/payments/actions"
+import { RecordPaymentDialog } from "@/components/payments/record-dialog"
+import { formatINR } from "@/lib/billing/money"
+import { isMode, MODE_LABEL } from "@/lib/billing/modes"
 import { useToast } from "@/components/invoice-editor/toast"
 import {
   AlertDialog,
@@ -164,13 +169,14 @@ function Amount({ value }: { value: string }) {
 
 /* ------------------------------- actions ------------------------------- */
 
-type Confirm = { kind: "delete" | "void"; inv: InvoiceSummary } | null
+type Confirm = { kind: "delete" | "void" | "paid"; inv: InvoiceSummary; detail?: string; key?: string } | null
 
 function Actions({ inv, view }: { inv: InvoiceSummary; view: ListView }) {
   const router = useRouter()
   const toast = useToast()
   const [busy, setBusy] = React.useState<string | null>(null)
   const [confirm, setConfirm] = React.useState<Confirm>(null)
+  const [recording, setRecording] = React.useState(false)
   const bucket = inv.bucket
 
   async function act<T extends object>(key: string, fn: () => Promise<({ ok: true } & T) | { ok: false; error: string }>, success?: (r: T) => string | void) {
@@ -184,8 +190,18 @@ function Actions({ inv, view }: { inv: InvoiceSummary; view: ListView }) {
     return result as { ok: true } & T
   }
 
-  const paid = () => act("paid", () => markPaid(inv.id), () => `${inv.number} marked as paid`)
-  const unpaid = () => act("unpaid", () => markUnpaid(inv.id), () => `${inv.number} is unpaid again`)
+  // "Mark as paid" records the full balance, today, by the mode used last: confirm that first
+  const paid = async () => {
+    setBusy("paid")
+    const ctx = await paymentContextAction(inv.id).catch(() => null)
+    setBusy(null)
+    if (!ctx?.ok) return toast({ title: ctx?.error ?? "You seem to be offline. Try again.", tone: "error" })
+    const mode = isMode(ctx.lastMode) ? MODE_LABEL[ctx.lastMode] : "UPI"
+    setConfirm({ kind: "paid", inv, detail: `Record ${formatINR(ctx.invoice.balanceDue)} received today via ${mode}? A receipt is made for it.`, key: crypto.randomUUID() })
+  }
+  const confirmPaid = (key: string) =>
+    act<{ result: { receipt: { number: string } } }>("paid", () => payInFullAction(inv.id, key), (r) => `${inv.number} marked as paid · Receipt ${r.result.receipt.number}`)
+  const markSent = () => act("sent", () => markSentAction(inv.id), () => `${inv.number} marked as sent`)
   const duplicate = async () => {
     const r = await act<{ id: string }>("dup", () => duplicateAction(inv.id))
     if (r) router.push(`/invoices/${r.id}`)
@@ -241,6 +257,9 @@ function Actions({ inv, view }: { inv: InvoiceSummary; view: ListView }) {
             </DropdownMenuItem>
             {bucket === "sent" || bucket === "overdue" ? (
               <>
+                <DropdownMenuItem className={item} onClick={() => setRecording(true)}>
+                  <WalletIcon /> Record payment
+                </DropdownMenuItem>
                 {bucket === "overdue" && (
                   <DropdownMenuItem className={item} onClick={paid}>
                     <CheckCircle2Icon /> Mark as paid
@@ -272,8 +291,13 @@ function Actions({ inv, view }: { inv: InvoiceSummary; view: ListView }) {
           </DropdownMenuGroup>
           {(bucket === "draft" || bucket === "sent" || bucket === "overdue" || bucket === "paid") && <DropdownMenuSeparator />}
           {bucket === "paid" && (
-            <DropdownMenuItem className={item} onClick={unpaid}>
-              <RotateCcwIcon /> Mark as unpaid
+            <DropdownMenuItem className={item} render={<Link href={`/invoices/${inv.id}#payments`} />}>
+              <WalletIcon /> Payments and receipts
+            </DropdownMenuItem>
+          )}
+          {bucket === "draft" && inv.missingFields === 0 && (
+            <DropdownMenuItem className={item} onClick={markSent}>
+              <SendIcon /> Mark as sent
             </DropdownMenuItem>
           )}
           {bucket === "draft" && (
@@ -292,30 +316,46 @@ function Actions({ inv, view }: { inv: InvoiceSummary; view: ListView }) {
       <AlertDialog open={confirm !== null} onOpenChange={(open) => !open && setConfirm(null)}>
         <AlertDialogContent className="sm:max-w-[400px]">
           <AlertDialogHeader>
-            <AlertDialogTitle>{confirm?.kind === "void" ? `Void ${inv.number}?` : "Delete this draft?"}</AlertDialogTitle>
+            <AlertDialogTitle>{confirm?.kind === "paid" ? `Mark ${inv.number} as paid?` : confirm?.kind === "void" ? `Void ${inv.number}?` : "Delete this draft?"}</AlertDialogTitle>
             <AlertDialogDescription>
-              {confirm?.kind === "void"
-                ? "The invoice stays on record with its number, marked void, and its link stops working. Use this when an invoice was sent by mistake. It can't be undone."
-                : `${inv.number || "This draft"}${inv.clientName ? ` for ${inv.clientName}` : ""} will be deleted. This can't be undone.`}
+              {confirm?.kind === "paid"
+                ? confirm.detail
+                : confirm?.kind === "void"
+                  ? "The invoice stays on record with its number, marked void, and its link stops working. Use this when an invoice was sent by mistake. It can't be undone."
+                  : `${inv.number || "This draft"}${inv.clientName ? ` for ${inv.clientName}` : ""} will be deleted. This can't be undone.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="h-8 text-[13px]">Cancel</AlertDialogCancel>
+            {confirm?.kind === "paid" && (
+              <Button
+                variant="outline"
+                className="h-8 text-[13px]"
+                onClick={() => {
+                  setConfirm(null)
+                  setRecording(true)
+                }}
+              >
+                Edit details
+              </Button>
+            )}
             <AlertDialogAction
-              variant="destructive"
+              variant={confirm?.kind === "paid" ? "default" : "destructive"}
               className="h-8 text-[13px]"
               onClick={async () => {
-                const kind = confirm?.kind
+                const c = confirm
                 setConfirm(null)
-                if (kind === "delete") await act("del", () => deleteDraftAction(inv.id), () => "Draft deleted")
-                if (kind === "void") await act("void", () => voidAction(inv.id), () => `${inv.number} voided`)
+                if (c?.kind === "paid" && c.key) await confirmPaid(c.key)
+                if (c?.kind === "delete") await act("del", () => deleteDraftAction(inv.id), () => "Draft deleted")
+                if (c?.kind === "void") await act("void", () => voidAction(inv.id), () => `${inv.number} voided`)
               }}
             >
-              {confirm?.kind === "void" ? "Void invoice" : "Delete draft"}
+              {confirm?.kind === "paid" ? "Confirm" : confirm?.kind === "void" ? "Void invoice" : "Delete draft"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {(bucket === "sent" || bucket === "overdue") && <RecordPaymentDialog open={recording} onOpenChange={setRecording} invoiceId={inv.id} />}
     </>
   )
 }

@@ -5,5 +5,5 @@ export type SessionUser = {
   name: string
   initials: string
   avatarUrl: string | null
-  plan: "Free"
+  plan: "Free" | "Pro"
 }

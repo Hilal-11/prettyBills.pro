@@ -1,5 +1,8 @@
 import "server-only"
 
+import { cache } from "react"
+
+import { getPlan } from "@/lib/server/billing"
 import { createClient } from "@/lib/supabase/server"
 
 import type { SessionUser } from "./types"
@@ -19,20 +22,20 @@ const initialsOf = (name: string) =>
  * than trusting the cookie as-is, then reads the profile row for the display
  * name, falling back to sign-up metadata if the profiles table isn't set up.
  */
-export async function getCurrentUser(): Promise<SessionUser | null> {
+export const getCurrentUser = cache(async function getCurrentUser(): Promise<SessionUser | null> {
   const supabase = await createClient()
   const { data, error } = await supabase.auth.getClaims()
   const claims = data?.claims
   if (error || !claims?.sub) return null
 
   const meta = (claims.user_metadata ?? {}) as Record<string, unknown>
-  const { data: profile } = await supabase.from("profiles").select("full_name, avatar_url").eq("id", claims.sub).maybeSingle()
+  const [{ data: profile }, plan] = await Promise.all([supabase.from("profiles").select("full_name, avatar_url").eq("id", claims.sub).maybeSingle(), getPlan(supabase, claims.sub)])
 
   const email = String(claims.email ?? "")
   const name = String(profile?.full_name || meta.full_name || meta.name || email.split("@")[0] || "You")
   const avatar = profile?.avatar_url || meta.avatar_url || meta.picture
-  return { id: claims.sub, email, name, initials: initialsOf(name), avatarUrl: typeof avatar === "string" ? avatar : null, plan: "Free" }
-}
+  return { id: claims.sub, email, name, initials: initialsOf(name), avatarUrl: typeof avatar === "string" ? avatar : null, plan: plan.pro ? "Pro" : "Free" }
+})
 
 /** For Route Handlers open to guests: the caller's user id, or null when signed out. */
 export async function optionalUserId() {

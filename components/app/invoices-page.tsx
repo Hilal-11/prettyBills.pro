@@ -33,7 +33,7 @@ export const VIEWS: Record<ListView, ViewCopy> = {
   sent: {
     title: "Awaiting payment",
     crumb: "Sent",
-    description: "Sent and not yet paid, soonest due first. Mark them paid as money comes in.",
+    description: "Sent and not yet paid, soonest due first. Record payments as money comes in.",
     empty: { icon: SendIcon, title: "Nothing awaiting payment", body: "Invoices you send land here until they're paid." },
   },
   overdue: {
@@ -46,7 +46,7 @@ export const VIEWS: Record<ListView, ViewCopy> = {
     title: "Paid",
     crumb: "Paid",
     description: "Paid in full, most recent first.",
-    empty: { icon: CircleCheckBigIcon, title: "No paid invoices yet", body: "Mark an invoice as paid (or record the full amount in it) and it moves here." },
+    empty: { icon: CircleCheckBigIcon, title: "No paid invoices yet", body: "Record payments on a sent invoice. Once they add up to its total, it moves here." },
   },
 }
 

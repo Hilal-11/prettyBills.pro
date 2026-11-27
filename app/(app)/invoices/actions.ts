@@ -5,7 +5,7 @@ import { refresh } from "next/cache"
 import { nextInvoiceNumber, uid } from "@/lib/invoice/format"
 import { computeInvoiceTotals, formatMoney } from "@/lib/invoice/totals"
 import { formatDate } from "@/lib/invoice/format"
-import { addEvent, deleteDraft, duplicateInvoice, ensureShareLink, getInvoice, listNumbers, setPaid, voidInvoice } from "@/lib/server/db/invoices"
+import { addEvent, deleteDraft, duplicateInvoice, ensureShareLink, getInvoice, listNumbers, voidInvoice } from "@/lib/server/db/invoices"
 import { dbMessage, today } from "@/lib/server/db/util"
 import { getSession, type ActionResult } from "@/lib/server/session"
 import { headers } from "next/headers"
@@ -29,14 +29,6 @@ async function run<T extends object>(id: string, fn: (s: NonNullable<Awaited<Ret
   } catch (error) {
     return { ok: false, error: error instanceof Error && !("status" in error) ? error.message : dbMessage(error) }
   }
-}
-
-export async function markPaid(id: string) {
-  return run(id, async ({ db, userId }) => ((await setPaid(db, userId, id, true)) ? {} : null))
-}
-
-export async function markUnpaid(id: string) {
-  return run(id, async ({ db, userId }) => ((await setPaid(db, userId, id, false)) ? {} : null))
 }
 
 export async function voidAction(id: string) {
@@ -67,7 +59,7 @@ export async function reminderAction(id: string) {
     const link = await ensureShareLink(db, id, true)
     if (!link) return null
     const h = await headers()
-    const origin = process.env.PRETTYBILL_ORIGIN ?? `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`
+    const origin = (process.env.PRETTYBILL_PUBLIC_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? process.env.PRETTYBILL_ORIGIN ?? `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`).replace(/\/+$/, "")
     const url = `${origin}/i/${link.token}`
     const totals = computeInvoiceTotals(invoice)
     const due = invoice.dueDate ? formatDate(invoice.dueDate, invoice.dateFormat) : null
@@ -85,7 +77,7 @@ export async function shareLinkAction(id: string) {
     const link = await ensureShareLink(db, id, true)
     if (!link) return null
     const h = await headers()
-    const origin = process.env.PRETTYBILL_ORIGIN ?? `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`
+    const origin = (process.env.PRETTYBILL_PUBLIC_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? process.env.PRETTYBILL_ORIGIN ?? `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`).replace(/\/+$/, "")
     return { url: `${origin}/i/${link.token}` }
   })
 }
