@@ -59,8 +59,8 @@ export function ArrowNudge({ className }: { className?: string }) {
 
 export function Logo({ className }: { className?: string }) {
   return (
-    <div className={cn("inline-flex items-center gap-2 text-sm font-semibold tracking-tight", className)}>
-      <Image src="/light-icon.png" alt="alt" width={36} height={36} className="border-1 border-beutral-700 dark:border-beutral-900 rounded-[6.9px]"/>
+    <div className={cn("", className)}>
+      <img src="/icon.png" alt="alt" width={38} height={38} className="" />
     </div>
   )
 }
