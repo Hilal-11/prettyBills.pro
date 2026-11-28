@@ -17,6 +17,41 @@ const linkClass =
   "relative isolate rounded-md px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
 
 /**
+ * The signed-in user's email, read from this browser's session (no server
+ * call, so the landing page stays static). undefined while it loads, null
+ * when signed out. supabase-js loads after the page shows.
+ */
+function useSignedInEmail() {
+  const [email, setEmail] = React.useState<string | null | undefined>(undefined)
+  React.useEffect(() => {
+    let cancelled = false
+    let unsubscribe = () => {}
+    void import("@/lib/supabase/client").then(async ({ createClient }) => {
+      const supabase = createClient()
+      const { data } = await supabase.auth.getSession()
+      if (cancelled) return
+      setEmail(data.session?.user.email ?? null)
+      const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => setEmail(session?.user.email ?? null))
+      unsubscribe = () => sub.subscription.unsubscribe()
+    })
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [])
+  return email
+}
+
+/** Signed in: the email (long ones end in "…", full on hover), linking to the dashboard. */
+function AccountLink({ email, className, onClick }: { email: string; className?: string; onClick?: () => void }) {
+  return (
+    <Link href="/dashboard" title={email} aria-label={`Signed in as ${email}. Open your dashboard`} onClick={onClick} className={className}>
+      <span className="block min-w-0 truncate">{email}</span>
+    </Link>
+  )
+}
+
+/**
  * Full-width bar at the top; once the page scrolls it tucks into a floating,
  * blurred pill. Nav links share one hover highlight that slides between them.
  */
@@ -25,6 +60,7 @@ export function Navbar() {
   const [scrolled, setScrolled] = React.useState(false)
   const [hovered, setHovered] = React.useState<string | null>(null)
   const [open, setOpen] = React.useState(false)
+  const email = useSignedInEmail()
 
   useMotionValueEvent(scrollY, "change", (y) => setScrolled(y > 24))
 
@@ -34,7 +70,7 @@ export function Navbar() {
         aria-label="Main"
         data-scrolled={scrolled || undefined}
         className={cn(
-          "mx-auto mt-0 max-w-6xl rounded-none border border-transparent px-3 transition-[max-width,margin,background-color,border-color,border-radius,box-shadow] duration-500 ease-[cubic-bezier(0.2,0,0,1)] sm:px-4",
+          "mx-auto mt-0 max-w-[1288px] rounded-none border border-transparent px-3 transition-[max-width,margin,background-color,border-color,border-radius,box-shadow] duration-500 ease-[cubic-bezier(0.2,0,0,1)] sm:px-4",
           "data-scrolled:mt-2 data-scrolled:max-w-4xl data-scrolled:rounded-xl data-scrolled:border-border data-scrolled:bg-background/70 data-scrolled:shadow-[0_8px_30px_-12px_rgb(0_0_0/0.12)] data-scrolled:backdrop-blur-lg",
           open && "rounded-xl border-border bg-background/95 backdrop-blur-lg"
         )}
@@ -64,13 +100,24 @@ export function Navbar() {
           {/* 10px between what you see: icon, text, button edges. Ghost items cancel their own padding with negative margins. */}
           <div className="ml-auto flex items-center gap-2.5">
             <ThemeToggle className="-mx-1.5 hidden md:inline-flex" />
-            <Link
-              href="/login"
-              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "-mx-2 hidden px-2 text-[13px] md:inline-flex hover:bg-neutral-200/20 hover:underline dark:hover:bg-neutral-800")}
-              {...trackAttrs("login_click", "navbar")}
-            >
-              Log in
-            </Link>
+            {email ? (
+              <AccountLink email={email} className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "-mx-2 hidden max-w-52 px-2 text-[13px] md:inline-flex hover:bg-neutral-200/20 hover:underline dark:hover:bg-neutral-800")} />
+            ) : (
+              <Link
+                href="/login"
+                aria-hidden={email === undefined || undefined}
+                tabIndex={email === undefined ? -1 : undefined}
+                className={cn(
+                  buttonVariants({ variant: "ghost", size: "sm" }),
+                  "-mx-2 hidden px-2 text-[13px] transition-opacity md:inline-flex hover:bg-neutral-200/20 hover:underline dark:hover:bg-neutral-800",
+                  // until the session is known, keep the space but don't flash "Log in" at signed-in people
+                  email === undefined && "pointer-events-none opacity-0"
+                )}
+                {...trackAttrs("login_click", "navbar")}
+              >
+                Log in
+              </Link>
+            )}
             <CtaLink href="/create" event="cta_create_click" section="navbar" size="sm" className="text-[13px]">
               Create free invoice
               <ArrowNudge className="hidden sm:block" />
@@ -114,14 +161,18 @@ export function Navbar() {
                   </motion.li>
                 ))}
                 <motion.li variants={{ hidden: { opacity: 0, y: -4 }, show: { opacity: 1, y: 0 } }} className="mt-2 flex items-center justify-between gap-2 border-t pt-3">
-                  <Link
-                    href="/login"
-                    onClick={() => setOpen(false)}
-                    className={cn(buttonVariants({ variant: "outline", size: "sm" }), "flex-1")}
-                    {...trackAttrs("login_click", "navbar_mobile")}
-                  >
-                    Log in
-                  </Link>
+                  {email ? (
+                    <AccountLink email={email} onClick={() => setOpen(false)} className={cn(buttonVariants({ variant: "outline", size: "sm" }), "min-w-0 flex-1 justify-start")} />
+                  ) : (
+                    <Link
+                      href="/login"
+                      onClick={() => setOpen(false)}
+                      className={cn(buttonVariants({ variant: "outline", size: "sm" }), "flex-1")}
+                      {...trackAttrs("login_click", "navbar_mobile")}
+                    >
+                      Log in
+                    </Link>
+                  )}
                   <ThemeToggle />
                 </motion.li>
                 <motion.li variants={{ hidden: { opacity: 0, y: -4 }, show: { opacity: 1, y: 0 } }} className="pt-2">
