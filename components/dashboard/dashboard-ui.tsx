@@ -7,19 +7,17 @@ import { latestChangelogId } from "@/lib/dashboard/changelog"
 import { isTyping } from "@/lib/client/platform"
 import type { FeedbackTopic } from "@/lib/feedback"
 
-import { FeedbackDialog } from "./feedback"
-import { ShortcutsDialog } from "./shortcuts-dialog"
-import { WhatsNewDialog } from "./whats-new-dialog"
-
 export type SettingsTab = "profile" | "business" | "preferences"
 
-type Panel = { kind: "settings"; tab: SettingsTab } | { kind: "shortcuts" } | { kind: "whats-new" } | { kind: "feedback"; topic?: FeedbackTopic } | null
+type Panel = { kind: "settings"; tab: SettingsTab } | { kind: "shortcuts" } | { kind: "whats-new" } | { kind: "feedback"; topic?: FeedbackTopic } | { kind: "search" } | null
 
 type DashboardUI = {
   openSettings: (tab?: SettingsTab) => void
   openShortcuts: () => void
   openWhatsNew: () => void
   openFeedback: (topic?: FeedbackTopic) => void
+  /** The ⌘K search palette. */
+  openSearch: () => void
   /** true until the newest "What's new" entry has been opened on this device. */
   whatsNewUnread: boolean
 }
@@ -32,7 +30,12 @@ export function useDashboardUI() {
   return ui
 }
 
+// Dialogs load on first open, not with every page (they're a large share of the app's JS).
 const SettingsDialog = dynamic(() => import("./settings/settings-dialog").then((m) => m.SettingsDialog), { ssr: false })
+const CommandPalette = dynamic(() => import("./command-palette").then((m) => m.CommandPalette), { ssr: false })
+const FeedbackDialog = dynamic(() => import("./feedback").then((m) => m.FeedbackDialog), { ssr: false })
+const ShortcutsDialog = dynamic(() => import("./shortcuts-dialog").then((m) => m.ShortcutsDialog), { ssr: false })
+const WhatsNewDialog = dynamic(() => import("./whats-new-dialog").then((m) => m.WhatsNewDialog), { ssr: false })
 
 /* the unread dot: localStorage, shared by every tab */
 const SEEN_KEY = "pb.whatsNewSeen"
@@ -79,16 +82,20 @@ export function DashboardUIProvider({ children }: { children: React.ReactNode })
         setPanel({ kind: "whats-new" })
       },
       openFeedback: (topic) => setPanel({ kind: "feedback", topic }),
+      openSearch: () => setPanel({ kind: "search" }),
       whatsNewUnread: seen !== latestChangelogId,
     }),
-    [seen]
+    [seen],
   )
 
-  // ? → shortcuts, Ctrl/⌘ , → settings, Ctrl/⌘ / → shortcuts
+  // ? → shortcuts, Ctrl/⌘ , → settings, Ctrl/⌘ / → shortcuts, Ctrl/⌘ K → search
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey
-      if (mod && e.key === ",") {
+      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "k") {
+        e.preventDefault()
+        setPanel((p) => (p?.kind === "search" ? null : { kind: "search" }))
+      } else if (mod && e.key === ",") {
         e.preventDefault()
         ui.openSettings("preferences")
       } else if (mod && e.key === "/") {
@@ -103,23 +110,41 @@ export function DashboardUIProvider({ children }: { children: React.ReactNode })
     return () => window.removeEventListener("keydown", onKey)
   }, [ui])
 
+  // each dialog mounts the first time it opens (its code downloads then), and stays for the close animation
+  const [opened, setOpened] = React.useState<ReadonlySet<string>>(() => new Set())
+  if (panel && !opened.has(panel.kind)) setOpened(new Set(opened).add(panel.kind))
+  const has = (kind: NonNullable<Panel>["kind"]) => opened.has(kind) || panel?.kind === kind
+
+  // ⌘K should feel instant: fetch the palette's code once the page is idle
+  React.useEffect(() => {
+    const warm = () => void import("./command-palette")
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void) => number
+    }
+    if (w.requestIdleCallback) w.requestIdleCallback(warm)
+    else setTimeout(warm, 2000)
+  }, [])
+
   const close = React.useCallback(() => setPanel(null), [])
   const onOpenChange = (open: boolean) => !open && close()
 
   return (
     <Ctx.Provider value={ui}>
       {children}
-      <SettingsDialog
-        open={panel?.kind === "settings"}
-        tab={panel?.kind === "settings" ? panel.tab : settingsTab}
-        onTabChange={(tab) => setPanel({ kind: "settings", tab })}
-        onOpenChange={onOpenChange}
-        onOpenShortcuts={ui.openShortcuts}
-        onOpenFeedback={ui.openFeedback}
-      />
-      <ShortcutsDialog open={panel?.kind === "shortcuts"} onOpenChange={onOpenChange} />
-      <WhatsNewDialog open={panel?.kind === "whats-new"} onOpenChange={onOpenChange} onOpenFeedback={() => ui.openFeedback()} />
-      <FeedbackDialog open={panel?.kind === "feedback"} topic={panel?.kind === "feedback" ? panel.topic : undefined} onOpenChange={onOpenChange} />
+      {has("settings") && (
+        <SettingsDialog
+          open={panel?.kind === "settings"}
+          tab={panel?.kind === "settings" ? panel.tab : settingsTab}
+          onTabChange={(tab) => setPanel({ kind: "settings", tab })}
+          onOpenChange={onOpenChange}
+          onOpenShortcuts={ui.openShortcuts}
+          onOpenFeedback={ui.openFeedback}
+        />
+      )}
+      {has("shortcuts") && <ShortcutsDialog open={panel?.kind === "shortcuts"} onOpenChange={onOpenChange} />}
+      {has("search") && <CommandPalette open={panel?.kind === "search"} onOpenChange={onOpenChange} openSettings={ui.openSettings} openShortcuts={ui.openShortcuts} openWhatsNew={ui.openWhatsNew} openFeedback={() => ui.openFeedback()} />}
+      {has("whats-new") && <WhatsNewDialog open={panel?.kind === "whats-new"} onOpenChange={onOpenChange} onOpenFeedback={() => ui.openFeedback()} />}
+      {has("feedback") && <FeedbackDialog open={panel?.kind === "feedback"} topic={panel?.kind === "feedback" ? panel.topic : undefined} onOpenChange={onOpenChange} />}
     </Ctx.Provider>
   )
 }

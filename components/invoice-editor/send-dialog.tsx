@@ -13,13 +13,15 @@ import { formatDate } from "@/lib/invoice/format"
 import { formatMoney } from "@/lib/invoice/totals"
 import { RX } from "@/lib/invoice/validate"
 import { upgradeHref } from "@/lib/pricing"
+import { quoteEmailSubject, quoteLabel } from "@/lib/billing/quotes"
 
 import { sendInvoice } from "./actions"
 import { Field } from "./fields"
 import { useToast } from "./toast"
-import type { EditorApi } from "./use-editor"
+import type { EditorApi, QuoteState } from "./use-editor"
 
 const PLACEHOLDERS = ["{client_name}", "{invoice_no}", "{amount}", "{due_date}", "{link}"] as const
+const QUOTE_PLACEHOLDERS = ["{client_name}", "{quote_no}", "{amount}", "{valid_until}", "{link}"] as const
 
 const splitEmails = (s: string) =>
   s
@@ -30,21 +32,27 @@ const splitEmails = (s: string) =>
 export function SendDialog({ ed, open, onOpenChange }: { ed: EditorApi; open: boolean; onOpenChange: (o: boolean) => void }) {
   const toast = useToast()
   const inv = ed.invoice
-  const amount = formatMoney(ed.totals.balanceDue, { whole: true })
+  const q = inv.quote
+  const amount = formatMoney(q ? ed.totals.total : ed.totals.balanceDue, { whole: true })
   const due = formatDate(inv.dueDate, inv.dateFormat)
+  const until = q?.validUntil ? formatDate(q.validUntil, inv.dateFormat) : ""
+  const number = q ? quoteLabel(inv.number || "(new)", inv.revision) : inv.number
+  const word = q ? (q.kind === "proforma" ? "proforma invoice" : q.title === "Estimate" ? "estimate" : "quotation") : "invoice"
 
   const defaults = React.useCallback(
     () => ({
       to: inv.billTo.email ?? "",
       cc: "",
       bcc: "",
-      subject: `Invoice ${inv.number} from ${inv.from.name} – ${amount} due ${due}`,
-      message: `Hi {client_name},\n\nPlease find invoice {invoice_no} for {amount}, due on {due_date}.\n\nView and pay online: {link}\n\nThank you,\n${inv.signature?.signatoryName || inv.from.name}`,
+      subject: q ? quoteEmailSubject(q.kind, number, inv.from.name, amount, q.title) : `Invoice ${inv.number} from ${inv.from.name} – ${amount} due ${due}`,
+      message: q
+        ? `Hi {client_name},\n\nPlease find our ${word} {quote_no} for {amount}${until ? ", valid until {valid_until}" : ""}.\n\n${q.kind === "quote" ? "You can view and accept it online" : "View it online"}: {link}\n\nThank you,\n${inv.signature?.signatoryName || inv.from.name}`
+        : `Hi {client_name},\n\nPlease find invoice {invoice_no} for {amount}, due on {due_date}.\n\nView and pay online: {link}\n\nThank you,\n${inv.signature?.signatoryName || inv.from.name}`,
       attachPdf: true,
       includeLink: true,
       copyMe: false,
     }),
-    [inv, amount, due]
+    [inv, q, number, word, until, amount, due]
   )
 
   const [form, setForm] = React.useState(defaults)
@@ -64,8 +72,10 @@ export function SendDialog({ ed, open, onOpenChange }: { ed: EditorApi; open: bo
     text
       .replaceAll("{client_name}", inv.billTo.name)
       .replaceAll("{invoice_no}", inv.number)
+      .replaceAll("{quote_no}", number)
       .replaceAll("{amount}", amount)
       .replaceAll("{due_date}", due)
+      .replaceAll("{valid_until}", until)
 
   function insert(ph: string) {
     const el = messageRef.current
@@ -87,7 +97,9 @@ export function SendDialog({ ed, open, onOpenChange }: { ed: EditorApi; open: bo
     if (bad) return setState({ busy: false, error: `"${bad}" isn't a valid email` })
     setState({ busy: true })
     try {
-      const res = await sendInvoice(inv, {
+      const res = await sendInvoice(
+        inv,
+        {
         to,
         cc,
         bcc,
@@ -96,16 +108,21 @@ export function SendDialog({ ed, open, onOpenChange }: { ed: EditorApi; open: bo
         attachPdf: form.attachPdf,
         includeLink: form.includeLink,
         copyMe: form.copyMe,
-      })
-      ed.markSent({ status: res.status, sentAt: res.sentAt, ...(res.publicToken ? { publicToken: res.publicToken } : {}) })
+        },
+        { quoteKey: ed.quoteKey }
+      )
+      if (q) {
+        const sent = (res.quote ?? {}) as Partial<QuoteState>
+        ed.setQuote({ ...sent, publicToken: res.publicToken ?? sent.publicToken ?? null })
+      } else ed.markSent({ status: res.status, sentAt: res.sentAt, ...(res.publicToken ? { publicToken: res.publicToken } : {}) })
       if (res.delivered) ed.countEmail()
       onOpenChange(false)
       toast({
-        title: res.delivered ? `Invoice emailed to ${to[0]}${to.length > 1 ? ` and ${to.length - 1} more` : ""}` : "Saved to the local outbox",
-        description: res.delivered ? `${res.summary}. Replies go to your business email.` : "Email isn't set up on this server, so nothing was delivered. The invoice is marked Sent.",
+        title: res.delivered ? `${q ? word[0].toUpperCase() + word.slice(1) : "Invoice"} emailed to ${to[0]}${to.length > 1 ? ` and ${to.length - 1} more` : ""}` : "Saved to the local outbox",
+        description: res.delivered ? `${res.summary}. Replies go to your business email.` : `Email isn't set up on this server, so nothing was delivered. The ${q ? word : "invoice"} is marked Sent.`,
         tone: "success",
         duration: 7000,
-        action: res.publicToken ? { label: "View", onClick: () => window.open(`/i/${res.publicToken}`, "_blank", "noopener") } : undefined,
+        action: res.publicToken ? { label: "View", onClick: () => window.open(`/${q ? "q" : "i"}/${res.publicToken}`, "_blank", "noopener") } : undefined,
       })
     } catch (error) {
       setState({ busy: false, error: (error as Error).message, upgrade: !!(error as { upgrade?: string }).upgrade })
@@ -116,9 +133,11 @@ export function SendDialog({ ed, open, onOpenChange }: { ed: EditorApi; open: bo
     <Dialog open={open} onOpenChange={(o) => !state.busy && onOpenChange(o)}>
       <DialogContent className="gap-4 p-5 sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="text-base">Send invoice {inv.number}</DialogTitle>
+          <DialogTitle className="text-base">
+            Send {q ? word : "invoice"} {number}
+          </DialogTitle>
           <DialogDescription>
-            {amount} due {due} · {inv.billTo.name}
+            {q ? `${amount}${until ? ` · valid until ${until}` : ""}` : `${amount} due ${due}`} · {inv.billTo.name}
           </DialogDescription>
         </DialogHeader>
 
@@ -153,7 +172,7 @@ export function SendDialog({ ed, open, onOpenChange }: { ed: EditorApi; open: bo
           <Field label="Message">
             <Textarea ref={messageRef} rows={7} value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} className="min-h-36 resize-y text-sm md:text-sm" />
             <div className="flex flex-wrap gap-1.5" aria-label="Insert placeholder">
-              {PLACEHOLDERS.map((p) => (
+              {(q ? QUOTE_PLACEHOLDERS : PLACEHOLDERS).map((p) => (
                 <button key={p} type="button" onClick={() => insert(p)} className="rounded-full border px-2 py-0.5 font-mono text-[11px] text-foreground/75 hover:bg-muted hover:text-foreground">
                   {p}
                 </button>
@@ -164,7 +183,7 @@ export function SendDialog({ ed, open, onOpenChange }: { ed: EditorApi; open: bo
             {(
               [
                 ["attachPdf", "Attach PDF"],
-                ["includeLink", "Include link to view and pay online"],
+                ["includeLink", q ? (q.kind === "quote" ? "Include link to view and accept online" : "Include link to view online") : "Include link to view and pay online"],
                 ["copyMe", `Send me a copy${inv.from.email ? ` (${inv.from.email})` : ""}`],
               ] as const
             ).map(([k, label]) => (

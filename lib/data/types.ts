@@ -33,6 +33,10 @@ export type InvoiceSummary = {
   updatedAt: string
   /** Positive when overdue, negative while still due, null without a due date. */
   daysPastDue: number | null
+  /** Settled by credit notes (amountPaid is what payments settled). */
+  creditedPaise?: number
+  /** Fully credited by a cancellation credit note. */
+  cancelled?: boolean
 }
 
 export type Overview = {
@@ -110,7 +114,10 @@ export type Workspace = {
 export type ClientWithStats = Client & {
   invoices: number
   billed: number
+  /** Money that reached the bank. */
   received: number
+  /** TDS the client deducted. Outstanding = billed − received − TDS. */
+  tds: number
   outstanding: number
   overdue: number
   lastInvoiceDate: string | null
@@ -147,6 +154,13 @@ export type PaymentRow = {
   receiptStatus: "active" | "void" | null
   receiptRevision: number
   receiptEmailedAt: string | null
+  /** Tax the client deducted (paise). Settled = amount + tdsPaise. */
+  tdsPaise: number
+  tdsSection: string | null
+  tdsRateBp: number | null
+  tdsCertificate: boolean
+  /** The client's PAN (saved on the client, or read from their GSTIN). */
+  clientPan: string | null
 }
 
 export type ReceiptRow = {
@@ -168,12 +182,14 @@ export type ReceiptRow = {
   amount: number
   mode: PaymentModeId
   reference: string | null
+  tdsPaise: number
+  tdsSection: string | null
 }
 
 /** Everything a receipt document needs. Balance figures are worked out when it's shown. */
 export type ReceiptView = {
   receipt: { id: string; number: string; date: string; revision: number; status: "active" | "void"; voidReason: string | null; publicToken?: string; linkActive?: boolean; emailedAt?: string | null; templateId: string; pageColor: "white" | "black" }
-  payment: { id: string; amount: number; paidOn: string; mode: PaymentModeId; reference: string | null; note?: string | null }
+  payment: { id: string; amount: number; tdsPaise: number; tdsSection: string | null; paidOn: string; mode: PaymentModeId; reference: string | null; note?: string | null }
   invoice: Invoice
   /** Shared receipts: the invoice's public link, when it's on. */
   invoiceLink?: string | null
@@ -182,9 +198,10 @@ export type ReceiptView = {
 
 /** What the server hands back after a payment is recorded, edited or deleted. */
 export type PaymentResult = {
-  payment: { id: string; amount: number; paidOn: string; mode: PaymentModeId; reference: string | null; note: string | null; deletedAt: string | null }
+  payment: { id: string; amount: number; tdsPaise: number; tdsSection: string | null; paidOn: string; mode: PaymentModeId; reference: string | null; note: string | null; deletedAt: string | null }
   receipt: { id: string; number: string; revision: number; status: "active" | "void"; publicToken: string; emailedAt: string | null }
-  invoice: { id: string; number: string; total: number; amountPaid: number; balanceDue: number; status: Exclude<InvoiceStatus, "overdue">; paidAt: string | null }
+  /** amountPaid is what's settled (received + TDS); tdsPaise the TDS part of it. */
+  invoice: { id: string; number: string; total: number; amountPaid: number; tdsPaise: number; balanceDue: number; status: Exclude<InvoiceStatus, "overdue">; paidAt: string | null }
   replayed?: boolean
 }
 

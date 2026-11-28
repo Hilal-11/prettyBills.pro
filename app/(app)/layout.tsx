@@ -1,6 +1,7 @@
 import { Suspense, type ReactNode } from "react"
 import type { Metadata } from "next"
 
+import { QueryProvider } from "@/components/app/query-provider"
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { DashboardUIProvider } from "@/components/dashboard/dashboard-ui"
 import { NavUserSkeleton } from "@/components/dashboard/nav-user"
@@ -25,26 +26,28 @@ export const metadata: Metadata = {
  */
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (
-    <TooltipProvider delay={300}>
-      <ToastProvider>
-        <DashboardUIProvider>
-          <SidebarProvider className={`h-svh overflow-hidden ${signatureFontVars}`}>
-            <AppSidebar
-              user={
-                <Suspense fallback={<NavUserSkeleton />}>
-                  <SidebarUser />
-                </Suspense>
-              }
-              upgrade={
-                <Suspense>
-                  <SidebarUpgrade />
-                </Suspense>
-              }
-            />
-            <SidebarInset className="min-h-0 overflow-hidden md:peer-data-[variant=inset]:h-[calc(100svh-1rem)]">{children}</SidebarInset>
-          </SidebarProvider>
-        </DashboardUIProvider>
-      </ToastProvider>
-    </TooltipProvider>
+    <QueryProvider>
+      <TooltipProvider delay={300}>
+        <ToastProvider>
+          <DashboardUIProvider>
+            <SidebarProvider className={`h-svh overflow-hidden ${signatureFontVars}`}>
+              <AppSidebar
+                user={
+                  <Suspense fallback={<NavUserSkeleton />}>
+                    <SidebarUser />
+                  </Suspense>
+                }
+                upgrade={
+                  <Suspense>
+                    <SidebarUpgrade />
+                  </Suspense>
+                }
+              />
+              <SidebarInset className="min-h-0 overflow-hidden md:peer-data-[variant=inset]:h-[calc(100svh-1rem)]">{children}</SidebarInset>
+            </SidebarProvider>
+          </DashboardUIProvider>
+        </ToastProvider>
+      </TooltipProvider>
+    </QueryProvider>
   )
 }

@@ -1,6 +1,7 @@
 import { buildStatement } from "@/lib/billing/ledger"
 import type { ReceiptView } from "@/lib/data/types"
 import { sampleInvoiceModel } from "@/lib/invoice/sample"
+import { tdsOnSettlement } from "@/lib/billing/tds"
 import { computeInvoiceTotals } from "@/lib/invoice/totals"
 import { invoiceEmail } from "@/lib/server/invoice-email"
 import { receiptEmail } from "@/lib/server/receipt-email"
@@ -23,12 +24,15 @@ export async function GET(request: Request) {
   if (kind === "receipt" || kind === "receipt-email") {
     const total = computeInvoiceTotals(invoice).total
     const part = q.get("part") === "1"
-    const amount = part ? Math.round(total * 0.4) : total
+    const settle = part ? Math.round(total * 0.4) : total
+    // ?tds=1: the client deducted 10% TDS on the value excluding GST
+    const tdsPaise = q.get("tds") === "1" ? tdsOnSettlement({ total, taxable: total - computeInvoiceTotals(invoice).taxTotal, settle, rateBp: 1000 }) : 0
+    const amount = settle - tdsPaise
     const view: ReceiptView = {
       receipt: { id: "00000000-0000-4000-8000-000000000000", number: "RCPT/26-27/004", date: "2026-11-25", revision: q.get("revised") === "1" ? 2 : 1, status: q.get("void") === "1" ? "void" : "active", voidReason: q.get("void") === "1" ? "Entered twice" : null, templateId: invoice.templateId, pageColor: q.get("black") === "1" ? "black" : "white", publicToken: "preview" },
-      payment: { id: "p", amount, paidOn: "2026-11-25", mode: "upi", reference: "512345678901" },
+      payment: { id: "p", amount, tdsPaise, tdsSection: tdsPaise ? "professional" : null, paidOn: "2026-11-25", mode: "upi", reference: "512345678901" },
       invoice: { ...invoice, templateId: q.get("template") ?? invoice.templateId, pageColor: q.get("black") === "1" ? "black" : "white" },
-      balance: { total, paidBefore: 0, thisPayment: amount, remaining: total - amount, paidInFull: !part },
+      balance: { total, paidBefore: 0, thisPayment: settle, remaining: total - settle, paidInFull: !part },
     }
     view.receipt.templateId = view.invoice.templateId
     if (kind === "receipt-email") {

@@ -2,6 +2,9 @@ import "server-only"
 
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import { addDays } from "@/lib/billing/dates"
+import { issueRange, UPCOMING_DAYS, weeklySeries, type InvoiceQuery, type InvoiceSort } from "@/lib/billing/invoice-query"
+import type { PaymentMode } from "@/lib/billing/modes"
 import { bucketOf as bucket, settleStatus } from "@/lib/data/status"
 import { EMPTY_OVERVIEW, type InvoiceBucket, type InvoiceEvent, type InvoiceSummary, type Overview } from "@/lib/data/types"
 import { randomToken } from "@/lib/invoice/format"
@@ -18,9 +21,9 @@ import { DbError, daysBetween, today } from "./util"
  */
 
 const SUMMARY_COLUMNS =
-  "id, number, status, client_id, client_name, issue_date, due_date, currency, total, amount_paid, balance_due, missing_fields, template_id, public_token, link_active, sent_at, viewed_at, paid_at, created_at, updated_at"
+  "id, number, status, client_id, client_name, issue_date, due_date, currency, total, amount_paid, balance_due, missing_fields, template_id, public_token, link_active, sent_at, viewed_at, paid_at, created_at, updated_at, credited_paise, cancelled"
 
-type SummaryRow = {
+export type SummaryRow = {
   id: string
   number: string
   status: InvoiceSummary["status"]
@@ -41,6 +44,8 @@ type SummaryRow = {
   paid_at: string | null
   created_at: string
   updated_at: string
+  credited_paise?: number
+  cancelled?: boolean
 }
 
 const OPEN = ["sent", "viewed", "partially_paid"] as const
@@ -49,7 +54,7 @@ export function bucketOf(status: string, dueDate: string | null, balanceDue: num
   return bucket(status, dueDate, balanceDue, on)
 }
 
-function toSummary(r: SummaryRow, on: string): InvoiceSummary {
+export function toSummary(r: SummaryRow, on: string): InvoiceSummary {
   const balanceDue = Number(r.balance_due)
   return {
     id: r.id,
@@ -74,6 +79,8 @@ function toSummary(r: SummaryRow, on: string): InvoiceSummary {
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     daysPastDue: r.due_date ? daysBetween(r.due_date, on) : null,
+    creditedPaise: Number(r.credited_paise ?? 0),
+    cancelled: !!r.cancelled,
   }
 }
 
@@ -127,6 +134,11 @@ export async function listInvoices(db: SupabaseClient, opts: ListOptions = {}) {
 export async function getOverview(db: SupabaseClient): Promise<Overview> {
   const { data, error } = await db.rpc("invoice_overview", { p_today: today() })
   if (error) throw new DbError(error)
+  return overviewOf(data)
+}
+
+/** The overview numbers from the database's JSON (invoice_overview, dashboard_data). */
+export function overviewOf(data: unknown): Overview {
   const o = (data ?? {}) as Record<string, number>
   return {
     all: o.all ?? 0,
@@ -358,4 +370,134 @@ export async function listRecentActivity(db: SupabaseClient, limit = 8): Promise
     const inv = Array.isArray(r.invoices) ? r.invoices[0] : r.invoices
     return { type: r.type, at: r.at, invoiceId: r.invoice_id, number: inv?.number ?? "", clientName: inv?.client_name ?? "" }
   })
+}
+
+/* ---------------------------- invoices table ---------------------------- */
+
+const SORT_COLUMN: Record<InvoiceSort, string> = {
+  number: "number",
+  client: "client_name",
+  amount: "total",
+  balance: "balance_due",
+  issued: "issue_date",
+  due: "due_date",
+  paid: "paid_at",
+  updated: "updated_at",
+}
+
+/**
+ * The invoices table: one tab, the filters from the URL, sorted, with the
+ * exact number of matches. `limit` rows from `offset`.
+ */
+export async function queryInvoices(db: SupabaseClient, q: InvoiceQuery, opts: { limit: number; offset?: number; ids?: string[] }) {
+  const on = today()
+  let query = db.from("invoices").select(SUMMARY_COLUMNS, { count: "exact" })
+
+  switch (q.view) {
+    case "draft":
+      query = query.eq("status", "draft")
+      break
+    case "sent":
+      query = query.in("status", OPEN).or(`due_date.is.null,due_date.gte.${on},balance_due.eq.0`)
+      break
+    case "overdue":
+      query = query.in("status", OPEN).lt("due_date", on).gt("balance_due", 0)
+      break
+    case "upcoming":
+      query = query.in("status", OPEN).gt("balance_due", 0).gte("due_date", on).lte("due_date", addDays(on, UPCOMING_DAYS))
+      break
+    case "paid":
+      query = query.eq("status", "paid")
+      break
+    case "void":
+      query = query.eq("status", "void")
+      break
+  }
+
+  if (opts.ids) query = query.in("id", opts.ids)
+  if (q.clients.length) query = query.in("client_id", q.clients)
+  const range = issueRange(q, on)
+  if (range.from) query = query.gte("issue_date", range.from)
+  if (range.to) query = query.lte("issue_date", range.to)
+  if (q.min !== null) query = query.gte("total", q.min)
+  if (q.max !== null) query = query.lte("total", q.max)
+  const term = q.q.trim()
+  if (term) {
+    const safe = term.replace(/[%_\]/g, (c) => `\${c}`).replace(/[,()]/g, " ")
+    query = query.or(`number.ilike.%${safe}%,client_name.ilike.%${safe}%`)
+  }
+
+  const asc = q.dir === "asc"
+  // blanks (no due date, not paid yet) go last whichever way it's sorted
+  query = query.order(SORT_COLUMN[q.sort], { ascending: asc, nullsFirst: false })
+  if (q.sort !== "issued") query = query.order("issue_date", { ascending: false })
+  query = query.order("created_at", { ascending: false }).order("id")
+
+  const from = opts.offset ?? 0
+  const { data, error, count } = await query.range(from, from + opts.limit - 1)
+  if (error) throw new DbError(error)
+  return { invoices: (data as SummaryRow[]).map((r) => toSummary(r, on)), total: count ?? 0 }
+}
+
+/** How each invoice was paid: the latest payment's mode, and how many different modes. */
+export async function paymentMethods(db: SupabaseClient, ids: string[]) {
+  const out: Record<string, { mode: PaymentMode; modes: number }> = {}
+  if (!ids.length) return out
+  const chunks: string[][] = []
+  for (let i = 0; i < ids.length; i += 150) chunks.push(ids.slice(i, i + 150))
+  const results = await Promise.all(
+    chunks.map((chunk) => db.from("payments").select("invoice_id, mode, paid_on, created_at").in("invoice_id", chunk).is("deleted_at", null).order("paid_on").order("created_at"))
+  )
+  const seen: Record<string, Set<string>> = {}
+  for (const { data, error } of results) {
+    if (error) throw new DbError(error)
+    for (const p of data as { invoice_id: string; mode: PaymentMode }[]) {
+      ;(seen[p.invoice_id] ??= new Set()).add(p.mode)
+      out[p.invoice_id] = { mode: p.mode, modes: seen[p.invoice_id].size }
+    }
+  }
+  return out
+}
+
+export type InvoiceInsights = ReturnType<typeof weeklySeries> & { voided: number }
+
+/**
+ * Sparklines for the KPI strip and the Upcoming count. Reads only invoices
+ * that were unpaid at some point in the last 12 weeks and the payments
+ * since, then rebuilds each week's balances (lib/billing/invoice-query).
+ */
+export async function invoiceInsights(db: SupabaseClient): Promise<InvoiceInsights> {
+  const on = today()
+  const start = addDays(on, -7 * 12)
+  const [inv, pay, voided] = await Promise.all([
+    db
+      .from("invoices")
+      .select("id, total, amount_paid, balance_due, issue_date, due_date, status")
+      .in("status", [...OPEN, "paid"])
+      .or(`status.neq.paid,paid_at.gte.${start}`)
+      .limit(5000),
+    db.from("payments").select("invoice_id, amount_paise, paid_on").is("deleted_at", null).gte("paid_on", start).limit(10000),
+    db.from("invoices").select("id", { count: "exact", head: true }).eq("status", "void"),
+  ])
+  if (inv.error) throw new DbError(inv.error)
+  if (pay.error) throw new DbError(pay.error)
+  const invoices = (inv.data as { id: string; total: number; amount_paid: number; balance_due: number; issue_date: string; due_date: string | null; status: string }[]).map((r) => ({
+    id: r.id,
+    total: Number(r.total),
+    amountPaid: Number(r.amount_paid),
+    balanceDue: Number(r.balance_due),
+    issueDate: r.issue_date,
+    dueDate: r.due_date,
+    status: r.status,
+  }))
+  const payments = (pay.data as { invoice_id: string; amount_paise: number; paid_on: string }[]).map((p) => ({ invoiceId: p.invoice_id, amount: Number(p.amount_paise), paidOn: p.paid_on }))
+  return { ...weeklySeries(invoices, payments, on), voided: voided.count ?? 0 }
+}
+
+/** Every invoice as a list row (newest first, capped), for dashboards that aggregate in code. */
+export async function listSummaries(db: SupabaseClient, limit = 5000) {
+  const on = today()
+  const { data, error } = await db.from("invoices").select(SUMMARY_COLUMNS).order("issue_date", { ascending: false }).order("created_at", { ascending: false }).limit(limit)
+  if (error) throw new DbError(error)
+  return (data as SummaryRow[]).map((r) => toSummary(r, on))
 }

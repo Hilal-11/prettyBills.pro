@@ -2,7 +2,6 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { AnimatePresence, motion } from "motion/react"
 import { LoaderCircleIcon, LogInIcon, UserPlusIcon } from "lucide-react"
 import { FcGoogle } from "react-icons/fc"
@@ -55,7 +54,6 @@ const callbackUrl = (next: string) => `${window.location.origin}/auth/callback?n
 
 /** Email + password and Google sign-in, backed by Supabase Auth. */
 export function AuthForm({ initialMode = "login" }: { initialMode?: Mode }) {
-  const router = useRouter()
   const [mode, setMode] = React.useState<Mode>(initialMode)
   const [errors, setErrors] = React.useState<Errors>({})
   const [pending, setPending] = React.useState<"email" | "google" | null>(null)
@@ -91,9 +89,9 @@ export function AuthForm({ initialMode = "login" }: { initialMode?: Mode }) {
   }
 
   function finish() {
-    // keep the button spinning while the app loads; the proxy now sees the session
-    router.replace(nextParam())
-    router.refresh()
+    // keep the button spinning while the app loads; the proxy now sees the session.
+    // A full load, so nothing cached from a previous account in this tab survives.
+    window.location.assign(nextParam())
   }
 
   async function google() {

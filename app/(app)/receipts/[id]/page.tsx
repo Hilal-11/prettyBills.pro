@@ -106,7 +106,7 @@ async function Receipt({ params }: { params: PageProps<"/receipts/[id]">["params
             invoiceId={invoice.id}
             invoiceNumber={invoice.number}
             active={receipt.status === "active"}
-            payment={{ id: payment.id, amount: payment.amount, paidOn: payment.paidOn, mode: payment.mode, reference: payment.reference, note: payment.note ?? null, receiptNumber: receipt.number, receiptRevision: receipt.revision, receiptEmailedAt: receipt.emailedAt ?? null }}
+            payment={{ id: payment.id, amount: payment.amount, tdsPaise: payment.tdsPaise, tdsSection: payment.tdsSection, tdsRateBp: null, paidOn: payment.paidOn, mode: payment.mode, reference: payment.reference, note: payment.note ?? null, receiptNumber: receipt.number, receiptRevision: receipt.revision, receiptEmailedAt: receipt.emailedAt ?? null }}
           />
 
           <section className="overflow-hidden rounded-xl border bg-background">

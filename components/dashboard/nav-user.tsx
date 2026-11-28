@@ -51,9 +51,10 @@ import type { SessionUser } from "@/lib/auth/types"
 import { authHref } from "@/lib/client/handoff"
 import { useKeyLabels } from "@/lib/client/platform"
 import { yearlyPerMonth } from "@/lib/pricing"
-import { createClient } from "@/lib/supabase/client"
 
 import { useDashboardUI } from "./dashboard-ui"
+import { getQueryClient } from "@/lib/client/query"
+import { setUserScope } from "@/lib/client/scope"
 
 const item = "gap-2 py-1.5 text-[13px]"
 
@@ -73,26 +74,43 @@ export function NavUser({ user }: { user: SessionUser | null }) {
 
   const shown = user ?? GUEST
 
+  // whose data the browser cache holds; a different user here wipes it first
+  React.useEffect(() => setUserScope(user?.id ?? "guest"), [user?.id])
+
   // signed out in another tab, or the session was revoked: leave the app here too
   React.useEffect(() => {
     if (!user) return
-    const { data } = createClient().auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_OUT") {
-        router.replace("/login")
-        router.refresh()
-      }
+    // supabase-js loads after the page shows (it isn't needed to render)
+    let unsubscribe = () => {}
+    let cancelled = false
+    void import("@/lib/supabase/client").then(({ createClient }) => {
+      if (cancelled) return
+      const { data } = createClient().auth.onAuthStateChange((event) => {
+        if (event === "SIGNED_OUT") {
+          // a full load: no cached page or query of this account survives into the next one
+          // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- deliberate full load: clears every cached page and query between accounts
+          window.location.assign("/login")
+        }
+      })
+      unsubscribe = () => data.subscription.unsubscribe()
     })
-    return () => data.subscription.unsubscribe()
-  }, [router, user])
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [user])
 
   // guests: the invoice they're on comes along to the login page
   const toAuth = (mode: "login" | "signup") => router.push(authHref(mode))
 
   async function logOut() {
     setLeaving(true)
+    const { createClient } = await import("@/lib/supabase/client")
     await createClient().auth.signOut()
-    router.replace("/login")
-    router.refresh()
+    // drop every cached copy of this account's data, then a full load (clears Next's page cache too)
+    getQueryClient().clear()
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- deliberate full load: clears every cached page and query between accounts
+    window.location.assign("/login")
   }
 
   return (
@@ -111,21 +129,16 @@ export function NavUser({ user }: { user: SessionUser | null }) {
               </SidebarMenuButton>
             }
           />
-          <DropdownMenuContent
-            className="w-(--anchor-width) min-w-64 rounded-xl p-1.5"
-            side={isMobile ? "bottom" : "right"}
-            align="end"
-            sideOffset={8}
-          >
+          <DropdownMenuContent className="w-(--anchor-width) min-w-64 rounded-xl p-1.5" side={isMobile ? "bottom" : "right"} align="end" sideOffset={8}>
             <DropdownMenuGroup>
-            <DropdownMenuLabel className="flex items-center gap-2.5 px-1.5 py-1.5 text-foreground">
-              <UserAvatar user={user} />
-              <span className="grid min-w-0 flex-1 leading-tight">
-                <span className="truncate text-[13px] font-semibold">{shown.name}</span>
-                <span className="truncate text-[11px] font-medium text-muted-foreground">{shown.email}</span>
-              </span>
-              {shown.plan === "Pro" ? <ProBadge /> : <span className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground">{shown.plan}</span>}
-            </DropdownMenuLabel>
+              <DropdownMenuLabel className="flex items-center gap-2.5 px-1.5 py-1.5 text-foreground">
+                <UserAvatar user={user} />
+                <span className="grid min-w-0 flex-1 leading-tight">
+                  <span className="truncate text-[13px] font-semibold">{shown.name}</span>
+                  <span className="truncate text-[11px] font-medium text-muted-foreground">{shown.email}</span>
+                </span>
+                {shown.plan === "Pro" ? <ProBadge /> : <span className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground">{shown.plan}</span>}
+              </DropdownMenuLabel>
             </DropdownMenuGroup>
             {!user && (
               <div className="mx-1 mt-1 mb-1.5 rounded-lg border border-brand/20 bg-brand/5 p-2.5">
@@ -219,9 +232,15 @@ export function NavUser({ user }: { user: SessionUser | null }) {
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="min-w-36 rounded-xl p-1.5">
                   <DropdownMenuRadioGroup value="en">
-                    <DropdownMenuRadioItem value="en" className={item}>English</DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="hi" className={item}>हिन्दी</DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="ur" className={item}>اردو</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="en" className={item}>
+                      English
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="hi" className={item}>
+                      हिन्दी
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="ur" className={item}>
+                      اردو
+                    </DropdownMenuRadioItem>
                   </DropdownMenuRadioGroup>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
@@ -289,9 +308,7 @@ function UserAvatar({ user }: { user: SessionUser | null }) {
   return (
     <Avatar className="size-8 rounded-md">
       {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt="" referrerPolicy="no-referrer" className="rounded-md" />}
-      <AvatarFallback className="rounded-md bg-linear-to-b from-brand to-brand-deep text-[11px] font-semibold text-white">
-        {user.initials}
-      </AvatarFallback>
+      <AvatarFallback className="rounded-md bg-linear-to-b from-brand to-brand-deep text-[11px] font-semibold text-white">{user.initials}</AvatarFallback>
     </Avatar>
   )
 }
@@ -311,9 +328,7 @@ export function NavUserSkeleton() {
 
 function Tag({ children, tone }: { children: React.ReactNode; tone?: "brand" }) {
   return (
-    <span className={tone === "brand" ? "ml-auto rounded bg-brand/10 px-1.5 py-0.5 text-[10px] text-brand dark:bg-brand/20 dark:text-[#6da2ff]" : "ml-auto rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground"}>
-      {children}
-    </span>
+    <span className={tone === "brand" ? "ml-auto rounded bg-brand/10 px-1.5 py-0.5 text-[10px] text-brand dark:bg-brand/20 dark:text-[#6da2ff]" : "ml-auto rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground"}>{children}</span>
   )
 }
 

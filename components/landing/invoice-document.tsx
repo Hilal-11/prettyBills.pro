@@ -5,6 +5,7 @@ import { stateLabel } from "@/lib/invoice/config"
 import { formatDate } from "@/lib/invoice/format"
 import { sampleInvoiceModel } from "@/lib/invoice/sample"
 import { computeInvoiceTotals, formatMoney, type Totals as InvoiceTotals } from "@/lib/invoice/totals"
+import { documentTitle, footnote, quoteLabel } from "@/lib/billing/quotes"
 import type { Invoice } from "@/lib/invoice/types"
 import { upiUri } from "@/lib/invoice/upi"
 import type { SampleInvoice } from "@/lib/landing/invoice"
@@ -93,7 +94,7 @@ export function InvoiceDocument({
   const totals = computeInvoiceTotals(inv)
   const qr = qrPath(upiUri(inv, totals))
   const paid = inv.status === "paid"
-  const label = `Invoice ${inv.number} from ${inv.from.name} to ${inv.billTo.name}, total ${formatMoney(totals.total, { whole: true })}, ${paid ? "paid" : "due"}`
+  const label = `${inv.quote ? documentTitle(inv) : "Invoice"} ${inv.number} from ${inv.from.name} to ${inv.billTo.name}, total ${formatMoney(totals.total, { whole: true })}, ${paid ? "paid" : "due"}`
   const black = inv.pageColor === "black"
 
   return (
@@ -148,7 +149,18 @@ function toLegacy(inv: Invoice, t: InvoiceTotals): { invoice: SampleInvoice; tot
       tax: { type: t.mode === "intra" ? "CGST+SGST" : "IGST", rate: inv.items[0]?.taxRate ?? 0 },
       upi: { id: inv.payment.upiId ?? "", payeeName: inv.from.name },
       status: inv.status === "paid" ? "PAID" : "DUE",
-      display: { showQr: inv.payment.showUpiQr && !!inv.payment.upiId, payNow: inv.payment.paymentLink },
+      display: { showQr: inv.payment.showUpiQr && !!inv.payment.upiId, payNow: inv.payment.paymentLink && !inv.quote },
+      ...(inv.quote
+        ? {
+            number: quoteLabel(inv.number, inv.revision),
+            doc: {
+              title: documentTitle(inv),
+              dueLabel: "Valid until",
+              due: inv.quote.validUntil ? formatDate(inv.quote.validUntil, inv.dateFormat) : "—",
+              footnote: footnote(inv.quote.kind),
+            },
+          }
+        : {}),
       notes: inv.notes,
     },
     totals: {
@@ -263,7 +275,7 @@ function A4({ invoice, totals, design, fill, qr }: { invoice: SampleInvoice; tot
 
         {/* Footer */}
         <div className="mt-auto flex items-end justify-between gap-[1em] pt-[5.2em] text-[0.78em] text-[#7a8090]">
-          <span>Thank you for your business.</span>
+          <span>{invoice.doc?.footnote ?? "Thank you for your business."}</span>
           <span>Made with PrettyBills</span>
         </div>
       </div>
@@ -273,14 +285,15 @@ function A4({ invoice, totals, design, fill, qr }: { invoice: SampleInvoice; tot
 
 function Header({ invoice, design }: { invoice: SampleInvoice; design: Design }) {
   const { accent, tint, header } = design
+  const title = invoice.doc?.title ?? "Invoice"
   const meta = (
     <dl className="grid grid-cols-[auto_auto] gap-x-[1em] gap-y-[0.15em] text-[0.85em] tabular-nums">
-      <dt className="opacity-70">Invoice no.</dt>
+      <dt className="opacity-70">{invoice.doc ? "No." : "Invoice no."}</dt>
       <dd className="text-right font-semibold">{invoice.number}</dd>
       <dt className="opacity-70">Date</dt>
       <dd className="text-right">{invoice.issueDate}</dd>
-      <dt className="opacity-70">Due</dt>
-      <dd className="text-right">{invoice.dueDate}</dd>
+      <dt className="opacity-70">{invoice.doc?.dueLabel ?? "Due"}</dt>
+      <dd className="text-right">{invoice.doc?.due ?? invoice.dueDate}</dd>
     </dl>
   )
 
@@ -290,7 +303,7 @@ function Header({ invoice, design }: { invoice: SampleInvoice; design: Design })
         <header className="flex items-end justify-between px-[2.6em] pt-[2.4em] pb-[1.8em] text-white" style={{ backgroundColor: accent }}>
           <div>
             <Monogram name={invoice.from.name} bg="#ffffff" fg={accent} />
-            <p className="mt-[0.9em] text-[2.6em] leading-none font-extrabold tracking-[-0.03em]">Invoice</p>
+            <p className="mt-[0.9em] text-[2.6em] leading-none font-extrabold tracking-[-0.03em]">{title}</p>
           </div>
           {meta}
         </header>
@@ -301,8 +314,8 @@ function Header({ invoice, design }: { invoice: SampleInvoice; design: Design })
           <div className="h-[1.1em] bg-[repeating-linear-gradient(-45deg,#f2b705_0_1em,#1c1c1c_1em_2em)]" />
           <div className="flex items-end justify-between px-[2.6em] pt-[1.8em]">
             <div>
-              <p className="text-[0.8em] font-semibold tracking-[0.14em] text-[#5b6170] uppercase">Site work · Tax invoice</p>
-              <p className="mt-[0.2em] text-[2.3em] leading-none font-black tracking-[-0.02em] uppercase">Invoice</p>
+              <p className="text-[0.8em] font-semibold tracking-[0.14em] text-[#5b6170] uppercase">Site work · {invoice.doc ? "Not a tax invoice" : "Tax invoice"}</p>
+              <p className="mt-[0.2em] text-[2.3em] leading-none font-black tracking-[-0.02em] uppercase">{title}</p>
             </div>
             <div className="rounded-[0.3em] px-[0.9em] py-[0.6em]" style={{ backgroundColor: tint }}>
               {meta}
@@ -314,14 +327,14 @@ function Header({ invoice, design }: { invoice: SampleInvoice; design: Design })
       return (
         <header className="text-center">
           <p className="text-[0.8em] tracking-[0.3em] uppercase" style={{ color: accent }}>
-            Tax Invoice
+            {invoice.doc?.title ?? "Tax Invoice"}
           </p>
           <p className="mt-[0.3em] text-[2.1em] leading-tight font-semibold">{invoice.from.name}</p>
           <div className="mt-[0.9em] border-y-[0.2em] border-double py-[0.5em]" style={{ borderColor: accent }}>
             <div className="flex justify-center gap-[2.2em] text-[0.85em] tabular-nums">
               <span>No. {invoice.number}</span>
               <span>{invoice.issueDate}</span>
-              <span>Due {invoice.dueDate}</span>
+              <span>{invoice.doc ? `${invoice.doc.dueLabel} ${invoice.doc.due}` : `Due ${invoice.dueDate}`}</span>
             </div>
           </div>
         </header>
@@ -333,12 +346,12 @@ function Header({ invoice, design }: { invoice: SampleInvoice; design: Design })
             <Monogram name={invoice.from.name} bg={accent} fg="#ffffff" round />
             <div>
               <p className="text-[1.2em] font-bold">{invoice.from.name}</p>
-              <p className="text-[0.85em] text-[#5b6170]">GST bill</p>
+              <p className="text-[0.85em] text-[#5b6170]">{invoice.doc ? "Not a tax invoice" : "GST bill"}</p>
             </div>
           </div>
           <div className="text-right">
             <p className="text-[1.7em] leading-none font-bold" style={{ color: accent }}>
-              Invoice
+              {title}
             </p>
             <div className="mt-[0.6em]">{meta}</div>
           </div>
@@ -353,7 +366,7 @@ function Header({ invoice, design }: { invoice: SampleInvoice; design: Design })
             </span>
             <div>
               <p className="text-[1.5em] leading-tight font-semibold" style={{ color: accent }}>
-                Invoice
+                {title}
               </p>
               <p className="text-[0.85em] text-[#5b6170]">{invoice.from.name}</p>
             </div>
@@ -364,7 +377,7 @@ function Header({ invoice, design }: { invoice: SampleInvoice; design: Design })
     case "editorial":
       return (
         <header className="flex items-end justify-between border-b border-[#16181d] pb-[1.2em]">
-          <p className="text-[3.2em] leading-[0.9] font-normal tracking-[0.12em] uppercase">Invoice</p>
+          <p className="text-[3.2em] leading-[0.9] font-normal tracking-[0.12em] uppercase">{title}</p>
           {meta}
         </header>
       )
@@ -373,7 +386,7 @@ function Header({ invoice, design }: { invoice: SampleInvoice; design: Design })
         <header className="flex items-start justify-between">
           <div>
             <Monogram name={invoice.from.name} bg={accent} fg="#ffffff" />
-            <p className="mt-[1.2em] text-[2em] leading-none font-semibold tracking-[-0.03em]">Invoice</p>
+            <p className="mt-[1.2em] text-[2em] leading-none font-semibold tracking-[-0.03em]">{title}</p>
           </div>
           {meta}
         </header>
@@ -483,7 +496,7 @@ function Receipt({ invoice, totals, fill, qr, bare = false }: { invoice: SampleI
           <p className="text-[0.85em] text-[#5b6170]">
             {invoice.from.city} · GSTIN {invoice.from.gstin}
           </p>
-          <p className="mt-[0.6em] font-semibold tracking-[0.2em]">TAX INVOICE</p>
+          <p className="mt-[0.6em] font-semibold tracking-[0.2em] uppercase">{invoice.doc?.title ?? "Tax invoice"}</p>
         </div>
         <div className={cn("mt-[0.8em] pt-[0.6em] text-[0.85em]", dashed)}>
           <p>No: {invoice.number}</p>
@@ -527,7 +540,8 @@ function Receipt({ invoice, totals, fill, qr, bare = false }: { invoice: SampleI
               <p className="mt-[0.4em]">Scan to pay · {invoice.upi.id}</p>
             </>
           )}
-          <p className="mt-[0.6em] text-[#7a8090]">Thank you, visit again</p>
+          {invoice.doc && <p className="mt-[0.6em]">Valid until {invoice.doc.due}</p>}
+          <p className="mt-[0.6em] text-[#7a8090]">{invoice.doc?.footnote ?? "Thank you, visit again"}</p>
         </div>
       </article>
     </div>

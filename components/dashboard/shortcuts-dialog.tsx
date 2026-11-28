@@ -41,6 +41,7 @@ function useGroups(): { title: string; items: Shortcut[] }[] {
     {
       title: "General",
       items: [
+        { label: "Search invoices, clients and pages", keys: [[mod, "K"]] },
         { label: "Show keyboard shortcuts", keys: [["?"], [mod, "/"]] },
         { label: "Open settings", keys: [[mod, ","]] },
         { label: "Show or hide the sidebar", keys: [[mod, "B"]] },

@@ -22,7 +22,26 @@ const trigger = "h-8 gap-1.5 px-2.5 text-[13px] font-normal"
  * Date range, client, mode (and receipt status) filters. Each change rewrites
  * the URL, so the server renders the filtered list and the view can be shared.
  */
-export function FilterBar({ filters, clients, defaults, searchPlaceholder, statusFilter = false }: { filters: ListFilters; clients: { id: string; name: string }[]; defaults: ListFilters; searchPlaceholder: string; statusFilter?: boolean }) {
+export function FilterBar({
+  filters,
+  clients,
+  defaults,
+  searchPlaceholder,
+  statusFilter = false,
+  tdsFilter = false,
+  inline = false,
+  children,
+}: {
+  filters: ListFilters
+  clients: { id: string; name: string }[]
+  defaults: ListFilters
+  searchPlaceholder: string
+  statusFilter?: boolean
+  tdsFilter?: boolean
+  /** Inside a page toolbar: one compact row, with `children` (export, primary action) after the search. */
+  inline?: boolean
+  children?: React.ReactNode
+}) {
   const router = useRouter()
   const pathname = usePathname()
   const [pending, start] = React.useTransition()
@@ -35,8 +54,8 @@ export function FilterBar({ filters, clients, defaults, searchPlaceholder, statu
   const dirty = filtersQuery(filters) !== filtersQuery(defaults)
 
   return (
-    <div className="mb-4 flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
-      <div className="flex flex-wrap items-center gap-1.5">
+    <div className={inline ? "flex flex-wrap items-center gap-1.5" : "mb-4 flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between"}>
+      <div className={inline ? "contents" : "flex flex-wrap items-center gap-1.5"}>
         <DateRange filters={filters} onChange={go} />
         <MultiPick
           icon={UsersIcon}
@@ -48,6 +67,16 @@ export function FilterBar({ filters, clients, defaults, searchPlaceholder, statu
           searchable
         />
         <MultiPick icon={WalletIcon} label="Mode" all="All modes" options={PAYMENT_MODES.map((m) => ({ value: m, label: MODE_LABEL[m] }))} value={filters.modes} onChange={(modes) => go({ modes: modes as PaymentMode[] })} />
+        {tdsFilter && (
+          <button
+            type="button"
+            aria-pressed={filters.tds}
+            onClick={() => go({ tds: !filters.tds })}
+            className={cn("h-8 rounded-lg border px-2.5 text-[13px] transition-colors", filters.tds ? "border-brand/40 bg-brand/5 font-medium text-foreground" : "bg-background text-foreground/75 hover:bg-muted")}
+          >
+            Has TDS
+          </button>
+        )}
         {statusFilter && (
           <div role="radiogroup" aria-label="Receipt status" className="inline-flex rounded-lg border bg-muted/50 p-0.5">
             {(["active", "void", "all"] as const).map((s) => (
@@ -64,17 +93,22 @@ export function FilterBar({ filters, clients, defaults, searchPlaceholder, statu
         )}
         {pending && <LoaderCircleIcon aria-label="Updating" className="size-3.5 animate-spin text-muted-foreground" />}
       </div>
-      <ListSearch placeholder={searchPlaceholder} />
+      <ListSearch placeholder={searchPlaceholder} className={inline ? "sm:w-56" : undefined} />
+      {children}
     </div>
   )
 }
 
-function DateRange({ filters, onChange }: { filters: ListFilters; onChange: (p: Partial<ListFilters>) => void }) {
+type Range = Pick<ListFilters, "preset" | "from" | "to">
+
+/** Date presets plus a custom range. `prefix` names the date ("Issued: This FY"). Exported for the invoices table. */
+export function DateRange({ filters, onChange, prefix, presets = PRESETS }: { filters: Range; onChange: (p: Range | Pick<Range, "preset">) => void; prefix?: string; presets?: DatePreset[] }) {
   const [open, setOpen] = React.useState(false)
   const [from, setFrom] = React.useState(filters.from ?? "")
   const [to, setTo] = React.useState(filters.to ?? "")
   const today = React.useMemo(() => todayIST(), [])
-  const label = filters.preset === "custom" ? `${filters.from ? formatDate(filters.from) : "Start"} – ${filters.to ? formatDate(filters.to) : "Today"}` : PRESET_LABEL[filters.preset]
+  const range = filters.preset === "custom" ? `${filters.from ? formatDate(filters.from) : "Start"} – ${filters.to ? formatDate(filters.to) : "Today"}` : PRESET_LABEL[filters.preset]
+  const label = prefix ? `${prefix}: ${range}` : range
   return (
     <Popover
       open={open}
@@ -86,13 +120,13 @@ function DateRange({ filters, onChange }: { filters: ListFilters; onChange: (p: 
         }
       }}
     >
-      <PopoverTrigger render={<Button variant="outline" className={trigger} aria-label={`Date range: ${label}`} />}>
+      <PopoverTrigger render={<Button variant="outline" className={cn(trigger, prefix && filters.preset !== "all" && "border-brand/40 bg-brand/5")} aria-label={`Date range: ${label}`} />}>
         <CalendarRangeIcon className="size-3.5 text-muted-foreground" /> {label}
         <ChevronDownIcon className="size-3.5 text-foreground/50" />
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 p-1.5">
         <div className="grid grid-cols-2 gap-0.5">
-          {PRESETS.map((p) => (
+          {presets.map((p) => (
             <button
               key={p}
               type="button"
@@ -129,7 +163,8 @@ function DateRange({ filters, onChange }: { filters: ListFilters; onChange: (p: 
   )
 }
 
-function MultiPick({
+/** A multi-select with search and Apply. Exported for the invoices table. */
+export function MultiPick({
   icon: Icon,
   label,
   all,
@@ -137,6 +172,7 @@ function MultiPick({
   value,
   onChange,
   searchable,
+  className,
 }: {
   icon: React.ComponentType<{ className?: string }>
   label: string
@@ -145,6 +181,7 @@ function MultiPick({
   value: string[]
   onChange: (v: string[]) => void
   searchable?: boolean
+  className?: string
 }) {
   const [open, setOpen] = React.useState(false)
   const [draft, setDraft] = React.useState<string[]>(value)
@@ -159,7 +196,7 @@ function MultiPick({
         else if (draft.join() !== value.join()) onChange(draft)
       }}
     >
-      <PopoverTrigger render={<Button variant="outline" className={cn(trigger, value.length && "border-brand/40 bg-brand/5")} aria-label={`${label}: ${shown}`} />}>
+      <PopoverTrigger render={<Button variant="outline" className={cn(trigger, value.length && "border-brand/40 bg-brand/5", className)} aria-label={`${label}: ${shown}`} />}>
         <Icon className="size-3.5 text-muted-foreground" /> <span className="max-w-36 truncate">{shown}</span>
         <ChevronDownIcon className="size-3.5 text-foreground/50" />
       </PopoverTrigger>

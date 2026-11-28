@@ -40,8 +40,8 @@ export function PaymentSection({ ed }: { ed: EditorApi }) {
       ed={ed}
       id="payment"
       icon={WalletCardsIcon}
-      title="Payment"
-      summary={[p.showUpiQr && "UPI QR", p.showBank && "Bank transfer", p.amountPaid > 0 && `${formatMoney(p.amountPaid)} paid`].filter(Boolean).join(" · ") || "No payment details"}
+      title={ed.isQuote ? "Payment details" : "Payment"}
+      summary={[p.showUpiQr && "UPI QR", p.showBank && "Bank transfer", !ed.isQuote && p.amountPaid > 0 && `${formatMoney(p.amountPaid)} paid`].filter(Boolean).join(" · ") || "No payment details"}
     >
       <div className="divide-y rounded-lg border">
         <ToggleRow label="Show UPI QR" hint="Clients scan to pay the balance due" checked={p.showUpiQr} onChange={(v) => ed.update((d) => void (d.payment.showUpiQr = v))} />
@@ -146,7 +146,11 @@ export function PaymentSection({ ed }: { ed: EditorApi }) {
       </Field>
 
       <p className="rounded-lg bg-muted/50 px-3 py-2 text-xs text-foreground/70">
-        {p.amountPaid > 0
+        {ed.isQuote
+          ? ed.mode === "proforma"
+            ? "Printed so the client can pay an advance. To record it, convert this proforma to an invoice, then record the payment there."
+            : "Printed for the client's reference. Payments aren't recorded on quotes: convert it to an invoice first."
+          : p.amountPaid > 0
           ? `${formatMoney(p.amountPaid)} received, ${formatMoney(ed.totals.balanceDue)} due. Payments are recorded in the Payments card above, each with its own receipt.`
           : ed.guest
             ? "Once you log in and send this invoice, you can record payments against it, each with a receipt."

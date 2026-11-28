@@ -1,8 +1,13 @@
-import type { NextRequest } from "next/server"
+import { NextResponse, type NextRequest } from "next/server"
 
+import { gatedFeature } from "@/config/features"
 import { updateSession } from "@/lib/supabase/proxy"
 
 export async function proxy(request: NextRequest) {
+  // a feature that isn't live yet (config/features.ts): the shared Coming soon
+  // page, with the address bar unchanged
+  const gated = gatedFeature(request.nextUrl.pathname)
+  if (gated) return NextResponse.rewrite(new URL(`/coming-soon/${gated.id}`, request.url))
   return updateSession(request)
 }
 
@@ -30,5 +35,24 @@ export const config = {
     "/api/billing/:path*",
     "/api/payments/:path*",
     "/api/receipts/:path*",
+    "/api/quotes/:path*",
+    "/api/credit-notes/:path*",
+    // every feature in config/features.ts that has its own route: not-yet-live ones
+    // get the Coming soon page; once live, these just refresh the session
+    "/quotes/:path*",
+    "/credit-notes/:path*",
+    "/recurring/:path*",
+    "/reminders/:path*",
+    "/payment-links/:path*",
+    "/expenses/:path*",
+    "/reports/:path*",
+    "/import/:path*",
+    "/team/:path*",
+    "/notifications/:path*",
+    "/languages/:path*",
+    "/e-invoicing/:path*",
+    "/e-way-bill/:path*",
+    "/inventory/:path*",
+    "/api-keys/:path*",
   ],
 }
