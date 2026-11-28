@@ -25,8 +25,8 @@ export const footerLinks = [
 ] as const
 
 export const socials = [
-  { key: "instagram", label: "Instagram", href: "https://instagram.com/prettybill" },
-  { key: "x", label: "X", href: "https://x.com/prettybill" },
-  { key: "github", label: "GitHub", href: "https://github.com/prettybill" },
-  { key: "linkedin", label: "LinkedIn", href: "https://www.linkedin.com/company/prettybill" },
+  { key: "instagram", label: "Instagram", href: "https://instagram.com/hilal_11_n" },
+  { key: "x", label: "X", href: "https://x.com/Hilal3884871845" },
+  { key: "github", label: "GitHub", href: "https://github.com/hilal-11" },
+  { key: "linkedin", label: "LinkedIn", href: "https://www.linkedin.com/in/hilal-ab5466347/" },
 ] as const
