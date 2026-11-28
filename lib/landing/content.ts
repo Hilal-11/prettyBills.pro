@@ -15,14 +15,13 @@ export const navLinks = [
 ] as const
 
 export const footerLinks = [
-  { label: "Developers", href: DOCS_URL },
+  { label: "Create an invoice", href: "/create" },
   { label: "Templates", href: "/templates" },
   { label: "Pricing", href: "/pricing" },
-  { label: "GST calculator", href: "/tools/gst-calculator" },
   { label: "Help center", href: HELP_URL },
-  // PLACEHOLDER: confirm privacy policy and terms URLs.
-  { label: "Privacy", href: "/privacy" },
-  { label: "Terms", href: "/terms" },
+  { label: "Developers", href: DOCS_URL },
+  // TODO before launch: add /privacy and /terms pages (Razorpay needs them), then list them here.
+  // They were linked before the pages existed, so they 404'd; a GST calculator page doesn't exist yet either.
 ] as const
 
 export const socials = [

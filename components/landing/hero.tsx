@@ -1,4 +1,5 @@
-import { HeroCopy, HeroVideo } from "./hero-motion"
+import { HeroCopy } from "./hero-motion"
+import { ProductShowcase } from "./product-showcase"
 import { ArrowNudge, CtaLink } from "./primitives"
 
 export function Hero() {
@@ -7,7 +8,9 @@ export function Hero() {
       {/* soft top light + framing guide lines */}
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
         <div className="absolute inset-x-0 top-0 h-[520px] bg-[radial-gradient(50%_60%_at_50%_0%,color-mix(in_oklab,var(--foreground)_7%,transparent),transparent)]" />
-        <div className="absolute inset-0 mx-auto max-w-6xl border-x border-dashed border-border/70 [mask-image:linear-gradient(to_bottom,black,transparent_85%)]" />
+        <div className="absolute inset-0 mx-auto max-w-[1288px] border-x border-dashed border-border/70 [mask-image:linear-gradient(to_bottom,black,transparent_85%)]" />
+        {/* dotted texture, fading out from the top */}
+        <div className="absolute inset-x-0 top-0 h-[560px] bg-[radial-gradient(var(--border)_1px,transparent_1px)] [background-size:18px_18px] [mask-image:radial-gradient(60%_70%_at_50%_0%,black,transparent)] opacity-70" />
       </div>
 
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
@@ -25,9 +28,11 @@ export function Hero() {
           }
         />
 
-        <div className="mt-14 sm:mt-20">
-          <HeroVideo src="/mainintro.mp4" />
-        </div>
+      </div>
+
+      {/* the product tour gets the full content width */}
+      <div className="mx-auto mt-14 max-w-[1288px] px-4 sm:mt-16 sm:px-6">
+        <ProductShowcase />
       </div>
     </section>
   )

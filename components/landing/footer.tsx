@@ -19,18 +19,18 @@ export function Footer() {
         <div className="absolute inset-x-[-50%] bottom-0 h-[200%] origin-bottom [transform:rotateX(60deg)] bg-[linear-gradient(to_right,var(--border)_1px,transparent_1px),linear-gradient(to_bottom,var(--border)_1px,transparent_1px)] [background-size:40px_40px] opacity-60" />
       </div>
 
-      <div className="mx-auto flex max-w-6xl flex-col gap-8 px-4 py-12 sm:px-6">
+      <div className="mx-auto flex max-w-[1288px] flex-col gap-8 px-4 py-12 sm:px-6">
         <div className="flex flex-col justify-between gap-6 sm:flex-row sm:items-center">
           <div>
             <Logo />
-            <p className="mt-2 text-[13px] text-muted-foreground">Free GST invoices for India.</p>
+            <p className="mt-2 max-w-xs text-[13px] leading-relaxed text-muted-foreground">GST invoices, quotes and payments for Indian businesses. Free to start, no signup needed.</p>
           </div>
           <ul className="flex flex-wrap gap-x-5 gap-y-2">
             {footerLinks.map((link) => (
               <li key={link.label}>
                 <Link
                   href={link.href}
-                  className="text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+                  className="relative text-[13px] text-muted-foreground transition-colors after:absolute after:inset-x-0 after:-bottom-0.5 after:h-px after:origin-left after:scale-x-0 after:bg-current after:transition-transform after:duration-300 hover:text-foreground hover:after:scale-x-100"
                   {...(link.href === DOCS_URL ? trackAttrs("dev_docs_click", "footer") : {})}
                   {...(link.href === "/templates" ? trackAttrs("cta_templates_click", "footer") : {})}
                 >
@@ -42,7 +42,7 @@ export function Footer() {
         </div>
 
         <div className="flex flex-col-reverse justify-between gap-4 border-t border-dashed pt-6 sm:flex-row sm:items-center">
-          <p className="text-xs text-muted-foreground">© 2026 PrettyBills · Made in Kashmir, India</p>
+          <p className="text-xs text-muted-foreground">© 2026 PrettyBills · Made with care in Kashmir, India</p>
           <ul className="-ml-2 flex items-center gap-0.5 sm:ml-0" aria-label="PrettyBills on social media">
             {socials.map((social) => {
               const Icon = socialIcons[social.key]

@@ -18,7 +18,7 @@ const geistMono = Geist_Mono({
 
 const title = "PrettyBills — Free GST Invoice Maker with Beautiful Templates"
 const description =
-  "Make a GST-ready invoice in 30 seconds. Pick a template, add your items, share on WhatsApp and get paid by UPI. Free forever, no signup needed."
+  "Make a GST-ready invoice in 30 seconds, share it on WhatsApp and get paid by UPI. Track payments, receipts, quotes and credit notes in one place. Free to start, no signup needed."
 
 export const metadata: Metadata = {
   // PLACEHOLDER: production origin, used to build absolute Open Graph URLs.
