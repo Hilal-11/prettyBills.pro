@@ -11,11 +11,14 @@ import { claimLocalData } from "@/lib/client/owner"
 import { LIMITS } from "@/lib/invoice/config"
 import { EMPTY_SETTINGS, type PaymentResult, type PlanSummary, type WorkspaceSettings } from "@/lib/data/types"
 import { formatINR } from "@/lib/billing/money"
+import { dataChanged } from "@/lib/client/sync"
 import { fetchWorkspace, importLocalData, invoicesChanged, onSettingsChanged, saveClientRemote, saveItemRemote, saveSettingsRemote } from "@/lib/client/workspace"
 import { createBlankInvoice, createInvoice, partyFromClient, SEED_BUSINESS, SEED_CATALOG, SEED_CLIENTS, type CatalogItem, type Client } from "@/lib/invoice/defaults"
 import { localDateToISO, nextInvoiceNumber, uid } from "@/lib/invoice/format"
 import { computeInvoiceTotals } from "@/lib/invoice/totals"
-import type { Invoice } from "@/lib/invoice/types"
+import type { Invoice, QuoteKind, QuoteTitle } from "@/lib/invoice/types"
+import { defaultMeta } from "@/lib/billing/quotes"
+import type { QuoteResult, QuoteSummary } from "@/lib/server/db/quotes"
 import { validateInvoice, type SectionId } from "@/lib/invoice/validate"
 import { createClient } from "@/lib/supabase/client"
 
@@ -29,8 +32,25 @@ type History = { past: Invoice[]; present: Invoice; future: Invoice[]; lastKey?:
 // Deterministic placeholder for the first render (no Date/random during prerender).
 const PLACEHOLDER = createInvoice({ id: "placeholder", today: "2026-11-01", counter: 15 })
 
-/** What to open: an existing invoice, or a new one (optionally with a template or client picked). */
-export type EditorOptions = { invoiceId?: string; templateId?: string; clientId?: string }
+/**
+ * What to open: an existing invoice, or a new one (optionally with a template
+ * or client picked). With `kind` (new) or `quoteId` (saved), the same editor
+ * works on a quote or proforma invoice instead.
+ */
+export type EditorOptions = {
+  invoiceId?: string
+  templateId?: string
+  clientId?: string
+  kind?: QuoteKind
+  quoteId?: string
+  quoteDefaults?: { title: Exclude<QuoteTitle, "Proforma Invoice">; validityDays: number }
+}
+
+/** A quote's server state (status, revision, response…) beside its document. */
+export type QuoteState = Pick<
+  QuoteSummary,
+  "id" | "kind" | "number" | "revision" | "status" | "display" | "sentAt" | "viewedAt" | "respondedAt" | "responseAction" | "responseBy" | "responseName" | "responseComment" | "publicToken" | "linkActive" | "convertedToType" | "convertedToId" | "convertedPaise" | "validUntil"
+>
 
 /** Settings defaults applied to a fresh invoice. */
 function applyDefaults(inv: Invoice, settings: WorkspaceSettings): Invoice {
@@ -51,6 +71,12 @@ export function useEditor(opts: EditorOptions = {}) {
   const router = useRouter()
   // read once: the boot decides what to open; later URL changes don't reload the editor
   const [boot] = React.useState(opts)
+  /** Working on a quote or proforma (stored in the quotes table) rather than an invoice. */
+  const isQuote = !!(boot.kind || boot.quoteId)
+  const [quote, setQuoteState] = React.useState<QuoteState | null>(null)
+  const quoteRef = React.useRef<QuoteState | null>(null)
+  /** The first save's idempotency key: a retried create returns the same quote. */
+  const [quoteKey] = React.useState(() => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}`))
   const [ready, setReady] = React.useState(false)
   const [hist, setHist] = React.useState<History>({ past: [], present: PLACEHOLDER, future: [], lastAt: 0 })
   const invoice = hist.present
@@ -80,8 +106,9 @@ export function useEditor(opts: EditorOptions = {}) {
   const [plan, setPlan] = React.useState<PlanSummary | null>(null)
   /** The invoice in the URL doesn't exist (or isn't yours). */
   const [notFound, setNotFound] = React.useState(false)
-  /** Not saved yet: the URL moves from /create to /invoices/<id> on the first save. */
-  const isNew = React.useRef(!opts.invoiceId)
+  /** Not saved yet: the URL moves from /create to /invoices/<id> (or /quotes/<id>/edit) on the first save. */
+  const isNew = React.useRef(!opts.invoiceId && !opts.quoteId)
+  const homeOf = React.useCallback((id: string) => (isQuote ? `/quotes/${id}/edit` : `/invoices/${id}`), [isQuote])
   /** Loaded with edits the server hasn't seen (a guest's work, or an offline draft): save once ready. */
   const bootDirty = React.useRef(false)
   const sectionRefs = React.useRef(new Map<SectionId, HTMLElement>())
@@ -91,13 +118,18 @@ export function useEditor(opts: EditorOptions = {}) {
   React.useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const { invoiceId, templateId, clientId } = boot
+      const { invoiceId, templateId, clientId, kind, quoteId, quoteDefaults } = boot
       const { data: auth } = await createClient().auth.getSession()
       // work a guest brought along when they chose to log in (or came back from the login page)
-      const handoff = invoiceId ? null : peekGuestWork()
+      const handoff = invoiceId || kind || quoteId ? null : peekGuestWork()
       const today = localDateToISO(new Date())
       const savedView = readLocal<View>(KEYS.view, "both")
 
+      if (!auth.session && (kind || quoteId)) {
+        // quotes are saved documents: they need an account
+        router.replace(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`)
+        return
+      }
       if (!auth.session) {
         if (cancelled) return
         // cleared only by a run that uses it (dev StrictMode runs this effect twice)
@@ -118,7 +150,7 @@ export function useEditor(opts: EditorOptions = {}) {
       }
 
       // unsynced drafts in this browser belong to the signed-in account; another account's are cleared first
-      await claimLocalData(auth.session.user.id)
+      await claimLocalData(auth.session!.user.id)
       const fetched = await fetchWorkspace()
       const ws = fetched ? await importLocalData(fetched) : null
       const settings = ws?.settings ?? EMPTY_SETTINGS
@@ -128,7 +160,30 @@ export function useEditor(opts: EditorOptions = {}) {
 
       let loaded: Invoice | null = null
       let dirty = false
-      if (handoff) {
+      if (quoteId) {
+        const res = await fetch(`/api/quotes/${encodeURIComponent(quoteId)}`).catch(() => null)
+        const body = res?.ok ? ((await res.json()) as { invoice: Invoice; quote: QuoteState }) : null
+        if (!body) {
+          if (cancelled) return
+          setNotFound(true)
+          setReady(true)
+          return
+        }
+        // offline edits only count while it's still a draft
+        const pending = body.quote.status === "draft" ? await idb.get<Invoice>(`invoice:${quoteId}`) : null
+        if (pending && pending.id === quoteId) {
+          loaded = { ...pending, number: body.invoice.number, revision: body.invoice.revision, publicToken: body.invoice.publicToken, sentAt: body.invoice.sentAt, linkActive: body.invoice.linkActive }
+          dirty = true
+        } else loaded = body.invoice
+        quoteRef.current = body.quote
+        setQuoteState(body.quote)
+      } else if (kind) {
+        const blank = createBlankInvoice({ id: uid(kind === "quote" ? "qt" : "pi"), today, counter: 1, business: settings.business ?? undefined })
+        loaded = withClient(
+          { ...applyDefaults(blank, settings), number: "", templateId: templateId || blank.templateId, quote: defaultMeta(kind, { title: quoteDefaults?.title, issueDate: today, validityDays: quoteDefaults?.validityDays }) },
+          ws?.clients.find((c) => c.id === clientId)
+        )
+      } else if (handoff) {
         const work = handoff.invoice
         // a guest numbers from 001; don't collide with numbers this account already used
         loaded = numbers.some((x) => x.number === work.number && x.id !== work.id) ? { ...work, number: fresh(work.id).number } : work
@@ -142,6 +197,11 @@ export function useEditor(opts: EditorOptions = {}) {
           loaded = server ? { ...pending, status: server.status, publicToken: server.publicToken, sentAt: server.sentAt, linkActive: server.linkActive } : pending
           dirty = true
         } else loaded = server
+        // a draft made from a quote has no number yet: it takes the next one in the invoice series
+        if (loaded && loaded.status === "draft" && !loaded.number.trim()) {
+          loaded = { ...loaded, number }
+          dirty = true
+        }
         if (!loaded) {
           if (cancelled) return
           setNotFound(true)
@@ -171,7 +231,7 @@ export function useEditor(opts: EditorOptions = {}) {
     return () => {
       cancelled = true
     }
-  }, [boot])
+  }, [boot, router])
 
   /* ----------------------------- editing ---------------------------- */
   const update = React.useCallback(
@@ -202,12 +262,12 @@ export function useEditor(opts: EditorOptions = {}) {
 
   // Editing a sent invoice creates a revised version (once per session).
   React.useEffect(() => {
-    if (!ready || !invoice.sentAt || revisionBumped || hist.past.length === 0) return
+    if (isQuote || !ready || !invoice.sentAt || revisionBumped || hist.past.length === 0) return
     setRevisionBumped(true)
     update((d) => {
       d.revision = (d.revision ?? 1) + 1
     })
-  }, [ready, invoice.sentAt, revisionBumped, hist.past.length, update])
+  }, [isQuote, ready, invoice.sentAt, revisionBumped, hist.past.length, update])
 
   /* ---------------------------- autosave ---------------------------- */
   const latest = React.useRef(invoice)
@@ -221,6 +281,37 @@ export function useEditor(opts: EditorOptions = {}) {
       return
     }
     setSave((s) => ({ ...s, status: "saving" }))
+    if (isQuote) {
+      try {
+        const res = await fetch(`/api/quotes/${inv.id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ invoice: inv, kind: inv.quote?.kind ?? "quote", key: quoteKey }) })
+        if (res.status === 401) {
+          router.replace(`/login?next=${encodeURIComponent(homeOf(inv.id))}`)
+          return
+        }
+        const body = (await res.json().catch(() => ({}))) as { error?: string; quote?: QuoteResult }
+        if (!res.ok || !body.quote) throw Object.assign(new Error(body.error ?? `Error ${res.status}`), { http: true })
+        const q = body.quote
+        setSave({ status: "saved", savedAt: Date.now() })
+        dataChanged("quote")
+        setServerDirty(false)
+        if (latest.current === inv) void idb.del(`invoice:${inv.id}`)
+        // the number comes from the QT / PI series on the first save
+        if (q.number !== inv.number || q.revision !== inv.revision) setHist((h) => ({ ...h, present: { ...h.present, number: q.number, revision: q.revision } }))
+        setQuoteState((prev) => {
+          const next = { ...(prev ?? ({} as QuoteState)), ...q, validUntil: inv.quote?.validUntil ?? null, display: prev?.display ?? "draft" } as QuoteState
+          quoteRef.current = next
+          return next
+        })
+        if (isNew.current) {
+          isNew.current = false
+          window.history.replaceState(null, "", homeOf(inv.id))
+        }
+      } catch (error) {
+        const http = (error as { http?: boolean }).http
+        setSave((s) => ({ ...s, status: http ? "error" : "offline", error: (error as Error).message }))
+      }
+      return
+    }
     try {
       const res = await fetch(`/api/invoices/${inv.id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ invoice: inv }) })
       if (res.status === 401) {
@@ -232,6 +323,8 @@ export function useEditor(opts: EditorOptions = {}) {
       if (!res.ok) throw Object.assign(new Error(body.error ?? `Error ${res.status}`), { http: true })
       setSave({ status: "saved", savedAt: Date.now() })
       setServerDirty(false)
+      // totals and status feed the dashboard and lists: drop their cached copies
+      dataChanged("invoice")
       // the server is up to date: drop the offline copy, unless there are newer edits
       if (latest.current === inv) void idb.del(`invoice:${inv.id}`)
       // paid / part paid and the amount received come from recorded payments, on the server
@@ -249,7 +342,7 @@ export function useEditor(opts: EditorOptions = {}) {
       const http = (error as { http?: boolean }).http
       setSave((s) => ({ ...s, status: http ? "error" : "offline", error: (error as Error).message }))
     }
-  }, [router])
+  }, [router, isQuote, quoteKey, homeOf])
 
   // a guest's invoice that just arrived, or offline edits: save them right away
   React.useEffect(() => {
@@ -262,6 +355,8 @@ export function useEditor(opts: EditorOptions = {}) {
   const firstRun = React.useRef(true)
   React.useEffect(() => {
     if (!ready || guest || notFound) return
+    // a sent (or answered) quote changes only through Revise
+    if (isQuote && quoteRef.current && quoteRef.current.status !== "draft") return
     if (firstRun.current) {
       firstRun.current = false
       return
@@ -279,7 +374,7 @@ export function useEditor(opts: EditorOptions = {}) {
       clearTimeout(local)
       clearTimeout(remote)
     }
-  }, [invoice, ready, guest, notFound, saveNow])
+  }, [invoice, ready, guest, notFound, saveNow, isQuote])
 
   React.useEffect(() => {
     const online = () => serverDirty && void saveNow(latest.current)
@@ -441,13 +536,48 @@ export function useEditor(opts: EditorOptions = {}) {
     setSave({ status: "saved", savedAt: Date.now() })
     if (isNew.current) {
       isNew.current = false
-      window.history.replaceState(null, "", `/invoices/${latest.current.id}`)
+      window.history.replaceState(null, "", homeOf(latest.current.id))
     }
     invoicesChanged()
-  }, [applyServer])
+  }, [applyServer, homeOf])
+
+  /** A quote write (send, revise, accept…) came back: reflect it without an undo step. */
+  const setQuote = React.useCallback((q: Partial<QuoteState>) => {
+    dataChanged("quote")
+    setQuoteState((prev) => {
+      const next = { ...(prev ?? ({} as QuoteState)), ...q } as QuoteState
+      quoteRef.current = next
+      return next
+    })
+    if (q.number || q.revision || q.publicToken !== undefined) {
+      setHist((h) => ({
+        ...h,
+        present: {
+          ...h.present,
+          ...(q.number ? { number: q.number } : {}),
+          ...(q.revision ? { revision: q.revision } : {}),
+          ...(q.publicToken !== undefined ? { publicToken: q.publicToken ?? undefined } : {}),
+          ...(q.linkActive !== undefined ? { linkActive: q.linkActive } : {}),
+          ...(q.sentAt !== undefined ? { sentAt: q.sentAt ?? undefined } : {}),
+        },
+      }))
+    }
+    setServerDirty(false)
+  }, [])
+
+  const kind: QuoteKind | null = isQuote ? (invoice.quote?.kind ?? boot.kind ?? "quote") : null
 
   return {
     ready,
+    /** "invoice", or the kind of pre-sale document being edited. */
+    mode: (kind ?? "invoice") as "invoice" | QuoteKind,
+    isQuote,
+    quote,
+    setQuote,
+    /** Sent or answered quotes are read-only until revised. */
+    locked: isQuote && !!quote && quote.status !== "draft",
+    /** Sent with the first save so a retried create returns the same quote. */
+    quoteKey,
     invoice,
     totals,
     validation,

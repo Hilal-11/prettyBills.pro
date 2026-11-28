@@ -80,7 +80,7 @@ export function PaymentMenu({ payment, balanceAfterDelete, onChanged }: { paymen
         open={editing}
         onOpenChange={setEditing}
         invoiceId={payment.invoiceId}
-        editing={{ id: payment.id, amount: payment.amount, paidOn: payment.paidOn, mode: payment.mode, reference: payment.reference, note: payment.note, receiptNumber: payment.receiptNumber, receiptRevision: payment.receiptRevision, receiptEmailedAt: payment.receiptEmailedAt }}
+        editing={{ id: payment.id, amount: payment.amount, tdsPaise: payment.tdsPaise, tdsSection: payment.tdsSection, tdsRateBp: payment.tdsRateBp, paidOn: payment.paidOn, mode: payment.mode, reference: payment.reference, note: payment.note, receiptNumber: payment.receiptNumber, receiptRevision: payment.receiptRevision, receiptEmailedAt: payment.receiptEmailedAt }}
         onSaved={onChanged}
       />
       <DeletePaymentDialog payment={deleting} onOpenChange={(o) => !o && setDeleting(null)} onDeleted={onChanged} />

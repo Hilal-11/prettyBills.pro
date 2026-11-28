@@ -25,7 +25,8 @@ export const receiptLink = (origin: string, token: string) => `${origin}/r/${tok
 
 /** WhatsApp message and link for a receipt. */
 export function receiptShare(view: ReceiptView, link: string) {
-  const text = `Hi ${view.invoice.billTo.name || "there"}, we've received ${formatINR(view.payment.amount)} for invoice ${view.invoice.number}. Thank you! Receipt: ${link}`
+  // with TDS, the amount that matters to the client is what it settled
+  const text = `Hi ${view.invoice.billTo.name || "there"}, we've received ${formatINR(view.payment.amount + view.payment.tdsPaise)} for invoice ${view.invoice.number}${view.payment.tdsPaise ? ` (incl. ${formatINR(view.payment.tdsPaise)} TDS)` : ""}. Thank you! Receipt: ${link}`
   const digits = (view.invoice.billTo.phone ?? "").replace(/\D/g, "")
   const phone = digits.length === 10 ? `91${digits}` : digits.length >= 11 ? digits : ""
   return { text, whatsapp: `https://wa.me/${phone}?text=${encodeURIComponent(text)}` }

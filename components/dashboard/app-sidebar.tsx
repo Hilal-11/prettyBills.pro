@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { ArrowUpRightIcon, ChevronRightIcon, CrownIcon, PlusIcon, SearchIcon } from "lucide-react"
+import { ArrowUpRightIcon, ChevronRightIcon, CrownIcon, KeyboardIcon, PaletteIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react"
 import { motion } from "motion/react"
 import { cn } from "cn"
 
@@ -27,12 +27,16 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { APP_NAME, BrandMark } from "@/components/brand"
+
+import { useDashboardUI } from "./dashboard-ui"
+import { Kbd } from "./shortcuts-dialog"
+import { useKeyLabels } from "@/lib/client/platform"
 import { useOverview } from "@/lib/client/use-overview"
 import { EMPTY_OVERVIEW, type Overview } from "@/lib/data/types"
-import { navGroups, type NavChild, type NavItem } from "@/lib/dashboard/data"
+import { controlItems, navGroups, type NavChild, type NavItem } from "@/lib/dashboard/data"
 import { spring } from "@/lib/motion"
 
-/** Is `href` the page we're on? Sub-pages count for top-level items (but /invoices only matches itself in the sub-list). */
+/** Is `href` the page we're on? Sub-pages count for top-level items; `exact` for sub-lists. */
 const isOn = (pathname: string, href: string, exact = false) => pathname === href || (!exact && pathname.startsWith(`${href}/`))
 
 /**
@@ -68,14 +72,7 @@ export function AppSidebar({ user, upgrade }: { user: React.ReactNode; upgrade?:
           <PlusIcon />
           <span className="group-data-[collapsible=icon]:hidden">New invoice</span>
         </Link>
-        <Link
-          href="/invoices"
-          onClick={done}
-          className="flex h-8 items-center gap-2 rounded-md border bg-background/60 px-2.5 text-[13px] text-muted-foreground transition-colors hover:bg-background hover:text-foreground group-data-[collapsible=icon]:hidden"
-        >
-          <SearchIcon className="size-3.5" />
-          Search invoices
-        </Link>
+        <SearchButton onOpen={done} />
       </SidebarHeader>
 
       <SidebarContent className="gap-0">
@@ -83,6 +80,7 @@ export function AppSidebar({ user, upgrade }: { user: React.ReactNode; upgrade?:
         <React.Suspense fallback={<NavGroups pathname="" overview={EMPTY_OVERVIEW} onNavigate={done} />}>
           <LiveNav onNavigate={done} />
         </React.Suspense>
+        <AppControls onNavigate={done} />
       </SidebarContent>
 
       <SidebarFooter className="gap-2">
@@ -91,6 +89,92 @@ export function AppSidebar({ user, upgrade }: { user: React.ReactNode; upgrade?:
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
+  )
+}
+
+/**
+ * Pinned to the bottom of the nav: Team members, Notifications, Languages,
+ * Keyboard shortcuts and Developer docs (flags from config/features.ts), then
+ * Themes and Settings. Themes opens Settings → Preferences (light / dark /
+ * system and the interface font); Settings opens the dialog, like Ctrl/⌘ ,.
+ */
+function AppControls({ onNavigate }: { onNavigate: () => void }) {
+  const { openSettings, openShortcuts } = useDashboardUI()
+  const { mod } = useKeyLabels()
+  const open = (tab: "preferences" | "profile") => () => {
+    onNavigate()
+    openSettings(tab)
+  }
+  const docs = controlItems.filter((i) => i.id === "api-docs")
+  return (
+    <SidebarGroup className="mt-auto py-1">
+      <SidebarMenu>
+        {controlItems
+          .filter((i) => i.id !== "api-docs")
+          .map((item) => (
+            <NavLink key={item.id} item={item} active={false} onNavigate={onNavigate} />
+          ))}
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            tooltip="Keyboard shortcuts"
+            className={linkCls}
+            onClick={() => {
+              onNavigate()
+              openShortcuts()
+            }}
+          >
+            <KeyboardIcon />
+            <span>Keyboard shortcuts</span>
+            <span className="ml-auto flex items-center gap-0.5 group-data-[collapsible=icon]:hidden">
+              <Kbd className="h-4.5 min-w-4.5 px-1 text-[10px]">?</Kbd>
+            </span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        {docs.map((item) => (
+          <NavLink key={item.id} item={item} active={false} onNavigate={onNavigate} />
+        ))}
+        <SidebarMenuItem>
+          <SidebarMenuButton tooltip="Themes" className={linkCls} onClick={open("preferences")}>
+            <PaletteIcon />
+            <span>Themes</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton tooltip="Settings" className={linkCls} onClick={open("profile")}>
+            <SettingsIcon />
+            <span>Settings</span>
+            <span className="ml-auto flex items-center gap-0.5 group-data-[collapsible=icon]:hidden">
+              <Kbd className="h-4.5 min-w-4.5 px-1 text-[10px]">{mod}</Kbd>
+              <Kbd className="h-4.5 min-w-4.5 px-1 text-[10px]">,</Kbd>
+            </span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    </SidebarGroup>
+  )
+}
+
+/** Opens the ⌘K palette: invoices, clients, receipts, pages and actions. */
+function SearchButton({ onOpen }: { onOpen: () => void }) {
+  const { openSearch } = useDashboardUI()
+  const { mod } = useKeyLabels()
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        onOpen()
+        openSearch()
+      }}
+      aria-keyshortcuts="Control+K Meta+K"
+      className="flex h-8 items-center gap-2 rounded-md border bg-background/60 px-2.5 text-[13px] text-muted-foreground transition-colors hover:bg-background hover:text-foreground group-data-[collapsible=icon]:hidden"
+    >
+      <SearchIcon className="size-3.5" />
+      Search
+      <span className="ml-auto flex items-center gap-0.5">
+        <Kbd className="h-4.5 min-w-4.5 px-1 text-[10px]">{mod}</Kbd>
+        <Kbd className="h-4.5 min-w-4.5 px-1 text-[10px]">K</Kbd>
+      </span>
+    </button>
   )
 }
 
@@ -109,7 +193,7 @@ function NavGroups({ pathname, overview, onNavigate }: { pathname: string; overv
           item.children ? (
             <CollapsibleNavItem key={item.id} item={item} pathname={pathname} overview={overview} onNavigate={onNavigate} />
           ) : (
-            <NavLink key={item.id} item={item} active={!!item.href && !item.external && isOn(pathname, item.href)} onNavigate={onNavigate} />
+            <NavLink key={item.id} item={item} count={item.count ? overview[item.count] : 0} active={!!item.href && !item.external && isOn(pathname, item.href)} onNavigate={onNavigate} />
           )
         )}
       </SidebarMenu>
@@ -130,12 +214,26 @@ function ActivePill({ className }: { className?: string }) {
 
 const linkCls = "relative isolate text-[13px] text-muted-foreground hover:bg-transparent hover:text-foreground data-active:bg-transparent data-active:text-foreground"
 
-function NavLink({ item, active, onNavigate }: { item: NavItem; active: boolean; onNavigate: () => void }) {
+function NavLink({ item, count, active, onNavigate }: { item: NavItem; count?: number | null; active: boolean; onNavigate: () => void }) {
   const Icon = item.icon
   if (item.soon || !item.href) {
     return (
       <SidebarMenuItem>
-        <SidebarMenuButton tooltip={`${item.label} (coming soon)`} aria-disabled className={cn(linkCls, "cursor-default opacity-60 hover:text-muted-foreground")}>
+        <SidebarMenuButton
+          // the one-line description, shown whether the sidebar is open or collapsed
+          tooltip={{
+            hidden: false,
+            className: "max-w-60",
+            children: (
+              <span className="grid gap-0.5">
+                <span className="font-medium">{item.label} · coming soon</span>
+                {item.description && <span className="opacity-80">{item.description}</span>}
+              </span>
+            ),
+          }}
+          aria-disabled
+          className={cn(linkCls, "cursor-default opacity-60 hover:text-muted-foreground aria-disabled:pointer-events-auto")}
+        >
           <Icon />
           <span>{item.label}</span>
         </SidebarMenuButton>
@@ -157,6 +255,14 @@ function NavLink({ item, active, onNavigate }: { item: NavItem; active: boolean;
         {item.external && <ArrowUpRightIcon className="ml-auto size-3.5! opacity-60" />}
         {item.pro && <CrownIcon aria-label="Pro" className="ml-auto size-3.5! text-amber-500 group-data-[collapsible=icon]:hidden" />}
       </SidebarMenuButton>
+      {!!count && (
+        <SidebarMenuBadge
+          aria-label={item.tone === "danger" ? `${count} overdue` : String(count)}
+          className={cn("text-[11px] tabular-nums", item.tone === "danger" ? "rounded bg-red-500/10 px-1 font-medium text-red-600 dark:text-red-400" : "text-muted-foreground")}
+        >
+          {count}
+        </SidebarMenuBadge>
+      )}
     </SidebarMenuItem>
   )
 }

@@ -80,11 +80,18 @@ export function validateInvoice(inv: Invoice, ctx: { takenNumbers?: string[]; co
   }
 
   // details
-  need("number", !!inv.number.trim(), "Enter an invoice number")
-  if (inv.number && ctx.takenNumbers?.includes(inv.number.trim())) errors.number = "This number is already used by another invoice"
-  need("issueDate", !!inv.issueDate)
-  need("dueDate", !!inv.dueDate)
-  if (inv.issueDate && inv.dueDate && inv.dueDate < inv.issueDate) errors.dueDate = "Due date can't be before the issue date"
+  if (inv.quote) {
+    // quotes and proformas: the number comes from the QT / PI series on first save, and there's no due date
+    need("issueDate", !!inv.issueDate)
+    if (inv.quote.kind === "quote") need("quote.validUntil", !!inv.quote.validUntil, "Set how long the quote is valid")
+    if (inv.issueDate && inv.quote.validUntil && inv.quote.validUntil < inv.issueDate) errors["quote.validUntil"] = "Valid until can't be before the issue date"
+  } else {
+    need("number", !!inv.number.trim(), "Enter an invoice number")
+    if (inv.number && ctx.takenNumbers?.includes(inv.number.trim())) errors.number = "This number is already used by another invoice"
+    need("issueDate", !!inv.issueDate)
+    need("dueDate", !!inv.dueDate)
+    if (inv.issueDate && inv.dueDate && inv.dueDate < inv.issueDate) errors.dueDate = "Due date can't be before the issue date"
+  }
   if (inv.currency !== "INR" && !(inv.exchangeRate && inv.exchangeRate > 0)) errors.exchangeRate = "Enter the exchange rate to INR"
 
   // items
@@ -136,7 +143,7 @@ export function validateInvoice(inv: Invoice, ctx: { takenNumbers?: string[]; co
   const sectionOf = (path: string): SectionId => {
     if (path.startsWith("from.")) return "business"
     if (path.startsWith("billTo.") || path.startsWith("shipTo.") || path === "placeOfSupply") return "client"
-    if (["number", "issueDate", "dueDate", "exchangeRate"].includes(path)) return "details"
+    if (["number", "issueDate", "dueDate", "exchangeRate", "quote.validUntil"].includes(path)) return "details"
     if (path.startsWith("items")) return "items"
     if (path.startsWith("charges.") || path.startsWith("tcs.")) return "tax"
     if (path.startsWith("payment.")) return "payment"

@@ -7,6 +7,7 @@ import { cn } from "cn"
 import { formatDate } from "@/lib/billing/dates"
 import { MODE_LABEL } from "@/lib/billing/modes"
 import { formatINR } from "@/lib/billing/money"
+import { tdsLabel } from "@/lib/billing/tds"
 import type { PaymentRow } from "@/lib/data/types"
 
 import { ModeIcon } from "./mode-icon"
@@ -17,14 +18,16 @@ import { PaymentMenu } from "./payment-menu"
  * receipt. Same look as the invoice list. Columns can be dropped where the
  * page already says them (a client's own page has no Client column).
  */
-export function PaymentsTable({ payments, showClient = true, showInvoice = true }: { payments: PaymentRow[]; showClient?: boolean; showInvoice?: boolean }) {
-  const cols = ["7.5rem", ...(showClient ? ["minmax(0,1.4fr)"] : []), ...(showInvoice ? ["minmax(0,1fr)"] : []), "8.5rem", "minmax(0,1fr)", "8rem", "minmax(0,1fr)", "2.5rem"].join(" ")
-  const headers = ["Date", ...(showClient ? ["Client"] : []), ...(showInvoice ? ["Invoice"] : []), "Mode", "Reference", "Amount", "Receipt", ""]
+export function PaymentsTable({ payments, showClient = true, showInvoice = true, showTds }: { payments: PaymentRow[]; showClient?: boolean; showInvoice?: boolean; showTds?: boolean }) {
+  // TDS and Settled columns only when some payment here had TDS (or the page asks)
+  const tds = showTds ?? payments.some((p) => p.tdsPaise > 0)
+  const cols = ["7.5rem", ...(showClient ? ["minmax(0,1.4fr)"] : []), ...(showInvoice ? ["minmax(0,1fr)"] : []), "8.5rem", "minmax(0,1fr)", "8rem", ...(tds ? ["6.5rem", "8rem"] : []), "minmax(0,1fr)", "2.5rem"].join(" ")
+  const headers = ["Date", ...(showClient ? ["Client"] : []), ...(showInvoice ? ["Invoice"] : []), "Mode", "Reference", "Received", ...(tds ? ["TDS", "Settled"] : []), "Receipt", ""]
   return (
     <div className="overflow-hidden rounded-xl border bg-background">
       <div className="hidden gap-4 border-b bg-muted/40 px-4 py-2 text-[11px] font-medium tracking-wide text-muted-foreground uppercase md:grid" style={{ gridTemplateColumns: cols }}>
         {headers.map((h, i) => (
-          <span key={`${h}${i}`} className={cn(h === "Amount" && "text-right")}>
+          <span key={`${h}${i}`} className={cn((h === "Received" || h === "TDS" || h === "Settled") && "text-right")}>
             {h}
           </span>
         ))}
@@ -46,7 +49,15 @@ export function PaymentsTable({ payments, showClient = true, showInvoice = true 
             <span className="hidden truncate text-muted-foreground tabular-nums md:block" title={p.note ?? undefined}>
               {p.reference || "—"}
             </span>
-            <span className="hidden text-right font-semibold tabular-nums md:block">{formatINR(p.amount)}</span>
+            <span className={cn("hidden text-right tabular-nums md:block", tds ? "font-medium" : "font-semibold")}>{formatINR(p.amount)}</span>
+            {tds && (
+              <>
+                <span className="hidden text-right text-muted-foreground tabular-nums md:block" title={p.tdsSection ? tdsLabel(p.tdsSection) : undefined}>
+                  {p.tdsPaise ? formatINR(p.tdsPaise) : "—"}
+                </span>
+                <span className="hidden text-right font-semibold tabular-nums md:block">{formatINR(p.amount + p.tdsPaise)}</span>
+              </>
+            )}
             <span className="hidden truncate tabular-nums md:block">
               {p.receiptId ? (
                 <Link href={`/receipts/${p.receiptId}`} className="text-brand hover:underline dark:text-[#6da2ff]">
@@ -65,7 +76,10 @@ export function PaymentsTable({ payments, showClient = true, showInvoice = true 
                 {p.receiptNumber ? ` · ${p.receiptNumber}` : ""}
               </span>
             </span>
-            <span className="text-right font-semibold tabular-nums md:hidden">{formatINR(p.amount)}</span>
+            <span className="grid text-right tabular-nums md:hidden">
+              <span className="font-semibold">{formatINR(p.amount + p.tdsPaise)}</span>
+              {p.tdsPaise > 0 && <span className="text-[11px] text-muted-foreground">incl. {formatINR(p.tdsPaise)} TDS</span>}
+            </span>
 
             <span className="flex justify-end">
               <PaymentMenu payment={p} />

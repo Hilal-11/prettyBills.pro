@@ -16,6 +16,8 @@ export type ListFilters = {
   modes: PaymentMode[]
   q: string
   status: "active" | "void" | "all"
+  /** Only payments where the client deducted TDS (?tds=1). */
+  tds: boolean
 }
 
 function get(p: Params, key: string) {
@@ -46,6 +48,7 @@ export function parseFilters(p: Params, today: string, defaults: { preset: DateP
     modes: list(get(p, "mode")).filter(isMode),
     q: get(p, "q").trim().slice(0, 80),
     status: status === "void" || status === "all" ? status : "active",
+    tds: get(p, "tds") === "1",
   }
 }
 
@@ -60,6 +63,7 @@ export function filtersQuery(f: ListFilters, extra: Record<string, string> = {})
   if (f.modes.length) q.set("mode", f.modes.join(","))
   if (f.q) q.set("q", f.q)
   if (f.status !== "active") q.set("status", f.status)
+  if (f.tds) q.set("tds", "1")
   for (const [k, v] of Object.entries(extra)) q.set(k, v)
   return q.toString()
 }

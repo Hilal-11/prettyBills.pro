@@ -8,9 +8,10 @@ export type Crumb = { label: string; href?: string }
 
 /**
  * Frame for every page in the app except the editor: the same 48px top bar
- * (sidebar toggle, breadcrumbs, actions) and a scrolling body.
+ * (sidebar toggle, breadcrumbs, actions) and a scrolling body, or with
+ * `bleed` a full-width body that scrolls its own parts.
  */
-export function PageShell({ crumbs, actions, children, wide }: { crumbs: Crumb[]; actions?: React.ReactNode; children: React.ReactNode; wide?: boolean }) {
+export function PageShell({ crumbs, actions, children, wide, bleed }: { crumbs: Crumb[]; actions?: React.ReactNode; children: React.ReactNode; wide?: boolean; bleed?: boolean }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
@@ -39,9 +40,15 @@ export function PageShell({ crumbs, actions, children, wide }: { crumbs: Crumb[]
         </nav>
         {actions && <div className="ml-auto flex items-center gap-1.5">{actions}</div>}
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-        <div className={cn("mx-auto w-full px-4 py-6 sm:px-6 lg:py-8", wide ? "max-w-7xl" : "max-w-6xl")}>{children}</div>
-      </div>
+      {bleed ? (
+        // edge to edge: the page lays out (and scrolls) its own regions, like the invoices table
+        <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+          {/* full width, no centred column: content runs from the sidebar to the edge */}
+          <div className={cn("w-full px-4 py-6 sm:px-6", wide ? "lg:py-6" : "lg:py-7")}>{children}</div>
+        </div>
+      )}
     </div>
   )
 }

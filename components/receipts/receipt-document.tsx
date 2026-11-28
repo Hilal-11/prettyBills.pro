@@ -5,6 +5,7 @@ import { templateLook } from "@/components/landing/invoice-document"
 import { formatDate } from "@/lib/billing/dates"
 import { MODE_LABEL } from "@/lib/billing/modes"
 import { amountInWordsINR, formatINR } from "@/lib/billing/money"
+import { tdsLabel } from "@/lib/billing/tds"
 import type { ReceiptView } from "@/lib/data/types"
 import { SIGNATURE_FONTS, stateLabel } from "@/lib/invoice/config"
 import type { Address } from "@/lib/invoice/types"
@@ -34,7 +35,7 @@ export function ReceiptDocument({ view, fill = false, print = false, invoiceHref
   const voided = receipt.status === "void"
   const sig = invoice.signature
   const stamp = voided ? null : balance.paidInFull ? { text: "PAID IN FULL", color: "#12805c" } : { text: "PART PAYMENT", color: black ? "#8fb0ff" : "#2453d6" }
-  const label = `Payment receipt ${receipt.number} from ${invoice.from.name} to ${invoice.billTo.name} for ${formatINR(payment.amount)}${voided ? ", void" : ""}`
+  const label = `Payment receipt ${receipt.number} from ${invoice.from.name} to ${invoice.billTo.name} for ${formatINR(payment.amount)}${payment.tdsPaise ? ` plus ${formatINR(payment.tdsPaise)} TDS` : ""}${voided ? ", void" : ""}`
 
   return (
     <div className={cn("@container w-full", className)} role="img" aria-label={label}>
@@ -93,6 +94,23 @@ export function ReceiptDocument({ view, fill = false, print = false, invoiceHref
           <p className="text-[0.82em] font-semibold tracking-[0.06em] text-(--muted) uppercase">Amount received</p>
           <p className={cn("mt-[0.1em] text-[2.6em] leading-tight font-bold tracking-[-0.02em] text-(--accent)", numeric)}>{formatINR(payment.amount)}</p>
           <p className="text-[0.88em] text-(--muted)">{amountInWordsINR(payment.amount)}</p>
+          {payment.tdsPaise > 0 && (
+            // the client's TDS settles part of the invoice too
+            <dl className={cn("mt-[0.9em] grid w-full max-w-[26em] gap-y-[0.15em] border-t border-(--rule) pt-[0.6em] text-[0.88em]", numeric)}>
+              <div className="flex justify-between gap-[1em]">
+                <dt>Amount received</dt>
+                <dd>{formatINR(payment.amount)}</dd>
+              </div>
+              <div className="flex justify-between gap-[1em]">
+                <dt>TDS deducted{payment.tdsSection ? ` (${tdsLabel(payment.tdsSection)})` : ""}</dt>
+                <dd>{formatINR(payment.tdsPaise)}</dd>
+              </div>
+              <div className="flex justify-between gap-[1em] font-bold">
+                <dt>Total settled</dt>
+                <dd>{formatINR(payment.amount + payment.tdsPaise)}</dd>
+              </div>
+            </dl>
+          )}
         </section>
 
         <div className="relative mt-[2em] grid grid-cols-2 gap-[2em] text-[0.9em]">
@@ -117,7 +135,7 @@ export function ReceiptDocument({ view, fill = false, print = false, invoiceHref
         <div className={cn("relative mt-[2em] ml-auto w-[58%] text-[0.9em]", numeric)}>
           <TotalRow label="Invoice total" value={formatINR(balance.total)} />
           <TotalRow label="Paid before this receipt" value={formatINR(balance.paidBefore)} />
-          <TotalRow label="This payment" value={formatINR(balance.thisPayment)} />
+          <TotalRow label={payment.tdsPaise > 0 ? "This receipt (incl. TDS)" : "This receipt"} value={formatINR(balance.thisPayment)} />
           <TotalRow label="Balance remaining" value={formatINR(balance.remaining)} strong />
         </div>
 

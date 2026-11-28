@@ -3,6 +3,7 @@ import { cn } from "cn"
 
 import { currencySymbol, PAYMENT_TERMS, SIGNATURE_FONTS, stateLabel } from "@/lib/invoice/config"
 import { formatDate } from "@/lib/invoice/format"
+import { documentTitle, footnote, quoteLabel } from "@/lib/billing/quotes"
 import { amountInWords, formatMoney, type Totals } from "@/lib/invoice/totals"
 import type { Address, Invoice } from "@/lib/invoice/types"
 import type { qrPath } from "@/lib/landing/qr"
@@ -26,6 +27,11 @@ const pages = {
 /** Footer text shared by the preview footer and the PDF page footer. */
 export function footerText(invoice: Invoice, totals: Totals) {
   if (invoice.footer) return invoice.footer
+  if (invoice.quote) {
+    const total = formatMoney(totals.total, { whole: true, symbol: currencySymbol(invoice.currency) })
+    const until = invoice.quote.validUntil ? ` · valid until ${formatDate(invoice.quote.validUntil, invoice.dateFormat)}` : ""
+    return `${quoteLabel(invoice.number, invoice.revision)} · ${total}${until}`
+  }
   const money = formatMoney(invoice.status === "paid" ? totals.total : totals.balanceDue, { whole: true, symbol: currencySymbol(invoice.currency) })
   return `${invoice.number} · ${invoice.status === "paid" ? `${money} paid` : `${money} due ${formatDate(invoice.dueDate, invoice.dateFormat)}`}`
 }
@@ -38,23 +44,34 @@ export function StandardTemplate({ invoice, totals, fill, qr, kind = "invoice", 
   const date = (iso: string) => formatDate(iso, invoice.dateFormat)
   const cols = invoice.columns
   const headlineAmount = money(receipt ? totals.amountPaid || totals.total : totals.balanceDue, { whole: true })
+  const quote = !receipt ? invoice.quote : undefined
   const headline = receipt
     ? `${headlineAmount} paid on ${date(invoice.issueDate)}`
-    : invoice.status === "paid"
+    : quote
+      ? `${money(totals.total, { whole: true })}${quote.validUntil ? ` · valid until ${date(quote.validUntil)}` : ""}`
+      : invoice.status === "paid"
       ? `${money(totals.total, { whole: true })} paid`
       : `${headlineAmount} due ${date(invoice.dueDate)}`
   const terms = PAYMENT_TERMS.find((t) => t.value === invoice.paymentTerms)
   const logo = invoice.from.logo
   const sig = invoice.signature
 
-  const meta: [string, string][] = [
+  const meta: [string, string][] = quote
+    ? [
+        [quote.kind === "proforma" ? "Proforma number" : quote.title === "Estimate" ? "Estimate number" : "Quotation number", invoice.number ? quoteLabel(invoice.number, invoice.revision) : "—"],
+        ["Date of issue", date(invoice.issueDate)],
+        ...(quote.validUntil ? ([["Valid until", date(quote.validUntil)]] as [string, string][]) : []),
+        ...(invoice.poNumber ? ([["PO number", invoice.poNumber]] as [string, string][]) : []),
+        ...(invoice.reference ? ([["Reference", invoice.reference]] as [string, string][]) : []),
+      ]
+    : [
     [receipt ? "Invoice number" : "Invoice number", invoice.number || "—"],
     [receipt ? "Date paid" : "Date of issue", date(invoice.issueDate)],
     ...(!receipt ? ([["Date due", date(invoice.dueDate)]] as [string, string][]) : []),
     ...(!receipt && terms && terms.value !== "custom" ? ([["Terms", terms.label]] as [string, string][]) : []),
     ...(invoice.poNumber ? ([["PO number", invoice.poNumber]] as [string, string][]) : []),
     ...(invoice.reference ? ([["Reference", invoice.reference]] as [string, string][]) : []),
-  ]
+      ]
 
   return (
     <article
@@ -65,7 +82,7 @@ export function StandardTemplate({ invoice, totals, fill, qr, kind = "invoice", 
       <header data-region="business" className={cn("flex items-start justify-between gap-[2em]", logo?.position === "left" && "flex-row-reverse")}>
         <div className={cn(logo?.position === "left" && "text-right")}>
           <h1 data-region="details" className="text-[2.1em] leading-none font-bold tracking-[-0.02em]">
-            {receipt ? "Receipt" : invoice.title}
+            {receipt ? "Receipt" : documentTitle(invoice)}
           </h1>
           {invoice.status === "paid" && !receipt && (
             <span className="mt-[0.6em] inline-block rounded-[0.3em] border border-[#12805c] px-[0.5em] text-[0.8em] font-bold tracking-[0.1em] text-[#12805c]">PAID</span>
@@ -128,7 +145,7 @@ export function StandardTemplate({ invoice, totals, fill, qr, kind = "invoice", 
         {headline}
       </p>
 
-      {!receipt && invoice.status !== "paid" && (invoice.payment.showUpiQr || invoice.payment.paymentLink) && (
+      {!receipt && !quote && invoice.status !== "paid" && (invoice.payment.showUpiQr || invoice.payment.paymentLink) && (
         <div data-region="payment" className="mt-[0.9em] flex items-center gap-[1.4em]">
           {invoice.payment.showUpiQr && invoice.payment.upiId && (
             <div className="flex items-center gap-[0.8em]">
@@ -195,14 +212,14 @@ export function StandardTemplate({ invoice, totals, fill, qr, kind = "invoice", 
         {totals.mode === "export" && <TotalRow label="IGST (zero-rated export)" value={money(0)} />}
         {totals.tcs > 0 && <TotalRow label={`TCS ${invoice.tcs?.rate}%`} value={money(totals.tcs)} />}
         {invoice.roundOff && totals.roundOff !== 0 && <TotalRow label="Round off" value={money(totals.roundOff, { sign: true })} />}
-        <TotalRow label="Total" value={money(totals.total)} strong={totals.amountPaid === 0} />
-        {totals.amountPaid > 0 && (
+        <TotalRow label="Total" value={money(totals.total)} strong={totals.amountPaid === 0 || !!quote} />
+        {totals.amountPaid > 0 && !quote && (
           <>
             <TotalRow label="Amount paid" value={`−${money(totals.amountPaid)}`} />
             <TotalRow label="Balance due" value={money(totals.balanceDue)} strong />
           </>
         )}
-        {totals.amountPaid === 0 && !receipt && invoice.status !== "paid" && <TotalRow label="Amount due" value={money(totals.balanceDue)} strong />}
+        {totals.amountPaid === 0 && !receipt && !quote && invoice.status !== "paid" && <TotalRow label="Amount due" value={money(totals.balanceDue)} strong />}
       </div>
 
       {invoice.showAmountInWords && invoice.currency === "INR" && (
@@ -212,6 +229,15 @@ export function StandardTemplate({ invoice, totals, fill, qr, kind = "invoice", 
       )}
 
       {/* payment details */}
+      {quote && invoice.payment.showUpiQr && invoice.payment.upiId && (
+        <div data-region="payment" className="mt-[2em] flex items-center gap-[0.8em]">
+          <QrTile qr={qr} />
+          <span className="text-[0.85em] leading-tight">
+            <span className="block font-semibold">UPI for payment</span>
+            <span className="text-(--muted)">{invoice.payment.upiId}</span>
+          </span>
+        </div>
+      )}
       {(invoice.payment.showBank || invoice.payment.instructions) && (
         <section data-region="payment" className="mt-[2em] text-[0.9em]">
           <p className="font-semibold">Payment details</p>
@@ -229,7 +255,7 @@ export function StandardTemplate({ invoice, totals, fill, qr, kind = "invoice", 
 
       {/* notes + terms */}
       <div data-region="notes" className="mt-[2em] space-y-[0.2em] text-[0.9em]">
-        <p>Tax payable on reverse charge: {invoice.reverseCharge ? "Yes" : "No"}</p>
+        {(!quote || invoice.reverseCharge) && <p>Tax payable on reverse charge: {invoice.reverseCharge ? "Yes" : "No"}</p>}
         {invoice.notes && <p className="mt-[0.6em] whitespace-pre-line">{invoice.notes}</p>}
         {invoice.terms && (
           <div className="mt-[0.8em]">
@@ -237,6 +263,7 @@ export function StandardTemplate({ invoice, totals, fill, qr, kind = "invoice", 
             <p className="whitespace-pre-line text-(--muted)">{invoice.terms}</p>
           </div>
         )}
+        {quote && <p className="mt-[0.8em] font-medium">{footnote(quote.kind)}</p>}
       </div>
 
       {/* signature */}
@@ -266,7 +293,7 @@ export function StandardTemplate({ invoice, totals, fill, qr, kind = "invoice", 
       {!print && (
       <footer data-region="notes" className={cn("flex justify-between gap-[1em] border-t border-(--rule) pt-[1em] text-[0.78em] text-(--muted)", fill ? "mt-auto" : "mt-[3em]")}>
         <span className={numeric}>
-          {invoice.footer || `${invoice.number} · ${headline}`}
+          {invoice.footer || (quote ? footerText(invoice, totals) : `${invoice.number} · ${headline}`)}
         </span>
         <span className="shrink-0">Page 1 of 1</span>
       </footer>

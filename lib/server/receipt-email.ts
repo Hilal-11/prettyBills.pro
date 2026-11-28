@@ -2,6 +2,7 @@ import "server-only"
 
 import { formatDate } from "@/lib/billing/dates"
 import { MODE_LABEL } from "@/lib/billing/modes"
+import { tdsLabel } from "@/lib/billing/tds"
 import { formatINR } from "@/lib/billing/money"
 import type { ReceiptView } from "@/lib/data/types"
 
@@ -14,7 +15,8 @@ import type { ReceiptView } from "@/lib/data/types"
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!)
 
 export function receiptSubject(view: ReceiptView) {
-  return `Receipt ${view.receipt.number} – ${formatINR(view.payment.amount)} received for ${view.invoice.number}`
+  const settled = view.payment.amount + view.payment.tdsPaise
+  return view.payment.tdsPaise > 0 ? `Receipt ${view.receipt.number} – ${formatINR(settled)} settled for ${view.invoice.number}` : `Receipt ${view.receipt.number} – ${formatINR(view.payment.amount)} received for ${view.invoice.number}`
 }
 
 export function receiptEmail(view: ReceiptView, opts: { link?: string; attachedPdf: boolean; branding?: boolean }) {
@@ -22,12 +24,14 @@ export function receiptEmail(view: ReceiptView, opts: { link?: string; attachedP
   const business = invoice.from.name || "Your supplier"
   const client = invoice.billTo.name || "there"
   const amount = formatINR(payment.amount)
+  const tds = payment.tdsPaise
+  const settled = formatINR(payment.amount + tds)
   const pill = balance.paidInFull
     ? `<span style="display:inline-block;padding:3px 10px;border-radius:999px;background:#e8f6ef;color:#12805c;font-size:12px;font-weight:600">Paid in full</span>`
     : `<span style="display:inline-block;padding:3px 10px;border-radius:999px;background:#e9efff;color:#2453d6;font-size:12px;font-weight:600">Part payment</span>`
   const row = (label: string, value: string, strong = false) =>
     `<tr><td style="padding:6px 0;font-size:13px;color:#59636e">${esc(label)}</td><td align="right" style="padding:6px 0;font-size:${strong ? "15px" : "13px"};color:#1f2328;font-weight:${strong ? 700 : 500}">${esc(value)}</td></tr>`
-  const intro = `Hi ${client}, thank you for your payment. We've received ${amount} for invoice ${invoice.number}.${balance.paidInFull ? " The invoice is now paid in full." : ` ${formatINR(balance.remaining)} is still due on it.`}`
+  const intro = `Hi ${client}, thank you for your payment. ${tds > 0 ? `We've received ${amount}, and with your TDS of ${formatINR(tds)} that settles ${settled} of invoice ${invoice.number}.` : `We've received ${amount} for invoice ${invoice.number}.`}${balance.paidInFull ? " The invoice is now paid in full." : ` ${formatINR(balance.remaining)} is still due on it.`}`
 
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>${esc(`Receipt ${receipt.number}`)}</title></head>
@@ -49,6 +53,7 @@ export function receiptEmail(view: ReceiptView, opts: { link?: string; attachedP
           ${row("Paid on", formatDate(payment.paidOn))}
           ${row("Mode", MODE_LABEL[payment.mode])}
           ${payment.reference ? row("Reference", payment.reference) : ""}
+          ${tds > 0 ? row(`TDS deducted${payment.tdsSection ? ` (${tdsLabel(payment.tdsSection)})` : ""}`, formatINR(tds)) + row("Total settled", settled) : ""}
           ${row("Balance remaining", formatINR(balance.remaining), true)}
         </table>
         ${
@@ -76,6 +81,7 @@ export function receiptEmail(view: ReceiptView, opts: { link?: string; attachedP
     `Invoice: ${invoice.number}`,
     `Paid on: ${formatDate(payment.paidOn)}`,
     `Mode: ${MODE_LABEL[payment.mode]}${payment.reference ? ` · ${payment.reference}` : ""}`,
+    ...(tds > 0 ? [`TDS deducted${payment.tdsSection ? ` (${tdsLabel(payment.tdsSection)})` : ""}: ${formatINR(tds)}`, `Total settled: ${settled}`] : []),
     `Balance remaining: ${formatINR(balance.remaining)}`,
     ...(opts.link ? [`View receipt: ${opts.link}`] : []),
     ...(opts.attachedPdf ? ["The receipt is attached as a PDF."] : []),

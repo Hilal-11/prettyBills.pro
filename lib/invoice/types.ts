@@ -82,6 +82,17 @@ export interface Signature {
   stampUrl?: string
 }
 
+/** Pre-sale documents share the invoice document exactly; this says which kind. */
+export type QuoteKind = "quote" | "proforma"
+export type QuoteTitle = "Quotation" | "Estimate" | "Proforma Invoice"
+
+export interface QuoteMeta {
+  kind: QuoteKind
+  title: QuoteTitle
+  /** Required to send a quote; optional on a proforma. */
+  validUntil?: string | null
+}
+
 export interface Invoice {
   id: string
   businessId: string
@@ -134,6 +145,10 @@ export interface Invoice {
   linkActive: boolean
   sentAt?: string
   revision: number
+  /** Set on quotes and proforma invoices (stored in the quotes table). */
+  quote?: QuoteMeta
+  /** An invoice or proforma made from a quote or proforma: where it came from. */
+  source?: { type: QuoteKind; id: string; number: string }
   createdAt: string
   updatedAt: string
 }

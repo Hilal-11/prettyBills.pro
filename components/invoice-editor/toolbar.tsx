@@ -55,18 +55,30 @@ import { localDateToISO, relativeTime } from "@/lib/invoice/format"
 import { CATEGORY_ORDER, TEMPLATES, templateMeta } from "@/lib/invoice/templates"
 import { ease } from "@/lib/motion"
 import { emailInPlan } from "@/lib/pricing"
+import { QuoteStatusBadge } from "@/components/quotes/quote-status"
+import { quoteLabel } from "@/lib/billing/quotes"
 
 import { downloadPdf, printPdf, shareLink, whatsappUrl } from "./actions"
 import { Segmented } from "./fields"
 import { useToast } from "./toast"
-import type { EditorApi, View } from "./use-editor"
+import type { EditorApi, QuoteState, View } from "./use-editor"
 
 const ctl = "h-8 text-[13px]"
 
+/** Quotes › Drafts / Sent / Accepted… (the list's tab for this status). */
+function quoteCrumb(ed: EditorApi) {
+  const kind = ed.mode === "proforma" ? "proforma" : "quote"
+  const base = kind === "proforma" ? "/quotes?kind=proforma" : "/quotes"
+  const join = (tab: string) => `${base}${base.includes("?") ? "&" : "?"}tab=${tab}`
+  const d = ed.quote?.display ?? "draft"
+  const tab = d === "draft" ? ["Drafts", "draft"] : d === "accepted" ? ["Accepted", "accepted"] : d === "declined" ? ["Declined", "declined"] : d === "converted" ? ["Converted", "converted"] : d === "void" ? ["Void", "void"] : d === "expired" ? ["Expired", "expired"] : ["Open", "open"]
+  return { root: { label: kind === "proforma" ? "Proforma" : "Quotes", href: base }, tab: { label: tab[0], href: join(tab[1]) } }
+}
+
 function crumbFor(status: string) {
-  if (status === "draft") return { label: "Drafts", href: "/invoices/drafts" }
-  if (status === "paid") return { label: "Paid", href: "/invoices/paid" }
-  return { label: "Sent", href: "/invoices/sent" }
+  if (status === "draft") return { label: "Drafts", href: "/invoices?view=draft" }
+  if (status === "paid") return { label: "Paid", href: "/invoices?view=paid" }
+  return { label: "Sent", href: "/invoices?view=sent" }
 }
 
 export function TopBar({ ed, wide, onSend }: { ed: EditorApi; wide: boolean; onSend: () => void }) {
@@ -77,7 +89,19 @@ export function TopBar({ ed, wide, onSend }: { ed: EditorApi; wide: boolean; onS
       <Separator orientation="vertical" className="mr-1 h-4 data-vertical:self-center" />
       <Breadcrumb className="min-w-0">
         <BreadcrumbList className="flex-nowrap text-[13px]">
-          {!ed.guest && (
+          {!ed.guest && ed.isQuote && (
+            <>
+              <BreadcrumbItem className="hidden xl:inline-flex">
+                <BreadcrumbLink render={<Link href={quoteCrumb(ed).root.href} />}>{quoteCrumb(ed).root.label}</BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator className="hidden xl:inline-flex" />
+              <BreadcrumbItem className="hidden 2xl:inline-flex">
+                <BreadcrumbLink render={<Link href={quoteCrumb(ed).tab.href} />}>{quoteCrumb(ed).tab.label}</BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator className="hidden 2xl:inline-flex" />
+            </>
+          )}
+          {!ed.guest && !ed.isQuote && (
             <>
               <BreadcrumbItem className="hidden 2xl:inline-flex">
                 <BreadcrumbLink render={<Link href="/invoices" />}>Invoices</BreadcrumbLink>
@@ -90,11 +114,13 @@ export function TopBar({ ed, wide, onSend }: { ed: EditorApi; wide: boolean; onS
             </>
           )}
           <BreadcrumbItem className="min-w-0">
-            <BreadcrumbPage className="truncate font-semibold tabular-nums">{ed.invoice.number || "Untitled"}</BreadcrumbPage>
+            <BreadcrumbPage className="truncate font-semibold tabular-nums">
+              {ed.isQuote ? (ed.invoice.number ? quoteLabel(ed.invoice.number, ed.invoice.revision) : ed.mode === "proforma" ? "New proforma" : "New quote") : ed.invoice.number || "Untitled"}
+            </BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
-      <StatusPill ed={ed} />
+      {ed.isQuote ? <QuoteStatusBadge display={ed.quote?.display ?? "draft"} className="ml-1 hidden sm:inline-flex" /> : <StatusPill ed={ed} />}
       {ed.guest ? <GuestIndicator ed={ed} /> : <SaveIndicator ed={ed} />}
 
       <div className="ml-auto flex items-center gap-1.5">
@@ -123,8 +149,14 @@ export function TopBar({ ed, wide, onSend }: { ed: EditorApi; wide: boolean; onS
         )}
         <PdfButton ed={ed} />
         <ShareMenu ed={ed} onEmail={onSend} locked={locked} />
-        <Button className={cn(ctl, "px-3")} onClick={onSend} title={locked ? "Emailing invoices is a Pro feature" : undefined} aria-label={locked ? "Send invoice (Pro)" : undefined}>
-          <SendIcon /> <span className="hidden sm:inline">Send invoice</span>
+        <Button
+          className={cn(ctl, "px-3")}
+          onClick={onSend}
+          disabled={ed.isQuote && !!ed.quote && ed.quote.status !== "draft" && ed.quote.status !== "sent"}
+          title={locked ? "Emailing is a Pro feature" : undefined}
+          aria-label={locked ? `${sendWord(ed)} (Pro)` : undefined}
+        >
+          <SendIcon /> <span className="hidden sm:inline">{sendWord(ed)}</span>
           {locked && <ProMark />}
         </Button>
         <Separator orientation="vertical" className="mx-0.5 hidden h-4 data-vertical:self-center sm:block" />
@@ -133,6 +165,8 @@ export function TopBar({ ed, wide, onSend }: { ed: EditorApi; wide: boolean; onS
     </header>
   )
 }
+
+const sendWord = (ed: EditorApi) => (ed.mode === "quote" ? "Send quote" : ed.mode === "proforma" ? "Send proforma" : "Send invoice")
 
 /* ------------------------------ status ------------------------------ */
 
@@ -390,13 +424,15 @@ function ShareMenu({ ed, onEmail, locked }: { ed: EditorApi; onEmail: () => void
   const toast = useToast()
   const [busy, setBusy] = React.useState(false)
 
-  async function withLink<T>(fn: (url: string) => T) {
+  async function withLink<T>(fn: (url: string) => T, via: "link" | "whatsapp" = "link") {
     // links need the invoice stored online, which needs an account
     if (ed.guest) return ed.askAccount("share")
     setBusy(true)
     try {
-      const res = await shareLink(ed.invoice)
+      const res = await shareLink(ed.invoice, undefined, { quoteKey: ed.quoteKey, via })
       if (res.token !== ed.invoice.publicToken) ed.applyServer({ publicToken: res.token })
+      // sharing a draft quote sends it
+      if (ed.isQuote && res.quote) ed.setQuote({ ...(res.quote as Partial<QuoteState>), display: ed.quote?.display === "draft" || !ed.quote ? "sent" : ed.quote.display })
       return fn(res.url)
     } catch (error) {
       toast({ title: "Couldn't create the link", description: (error as Error).message, tone: "error" })
@@ -430,7 +466,7 @@ function ShareMenu({ ed, onEmail, locked }: { ed: EditorApi; onEmail: () => void
               const wa = whatsappUrl(ed.invoice, ed.totals, url)
               if (win) win.location.href = wa
               else window.open(wa, "_blank", "noopener")
-            })
+            }, "whatsapp")
           }}
         >
           <FaWhatsapp className="text-emerald-600 dark:text-emerald-400" /> WhatsApp
@@ -461,7 +497,7 @@ function ShareMenu({ ed, onEmail, locked }: { ed: EditorApi; onEmail: () => void
         </DropdownMenuCheckboxItem>
         )}
         {ed.invoice.publicToken && (
-          <DropdownMenuItem render={<a href={`/i/${ed.invoice.publicToken}`} target="_blank" rel="noopener" />}>
+          <DropdownMenuItem render={<a href={`/${ed.isQuote ? "q" : "i"}/${ed.invoice.publicToken}`} target="_blank" rel="noopener" />}>
             <CheckIcon className="opacity-0" /> Open public page
           </DropdownMenuItem>
         )}

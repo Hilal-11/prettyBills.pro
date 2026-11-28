@@ -1,5 +1,6 @@
 import "server-only"
 
+import { io } from "next/cache"
 import { cookies } from "next/headers"
 import { createServerClient } from "@supabase/ssr"
 
@@ -11,6 +12,10 @@ import { supabaseEnv } from "./env"
  */
 export async function createClient() {
   const cookieStore = await cookies()
+  // Auth calls read the clock (token expiry). In a prefetch prerender
+  // cookies() can resolve, so mark the IO explicitly: what follows runs only
+  // for a real request (and immediately inside "use cache").
+  await io()
   const { url, key } = supabaseEnv()
   return createServerClient(url, key, {
     cookies: {

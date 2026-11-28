@@ -12,6 +12,8 @@ import { formatMoney } from "@/lib/invoice/totals"
 import { emailInPlan } from "@/lib/pricing"
 import { stagger, rise } from "@/lib/motion"
 
+import { CreatedFrom, QuoteBanner, QuoteDetailsSection } from "@/components/quotes/editor-parts"
+
 import { PaymentsCard } from "./payments-card"
 import { BusinessSection } from "./sections/business"
 import { ClientSection } from "./sections/client"
@@ -30,7 +32,9 @@ export function EditPanel({ ed, onSend, onSaveDraft, wide }: { ed: EditorApi; on
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:thin]">
         <div className={cn("mx-auto px-4 pt-1 pb-6", wide ? "max-w-[760px]" : "")}>
-          {ed.invoice.sentAt && (
+          {ed.isQuote ? <QuoteBanner ed={ed} /> : ed.invoice.source ? <CreatedFrom source={ed.invoice.source} /> : null}
+
+          {!ed.isQuote && ed.invoice.sentAt && (
             <div className="mt-3 flex items-start gap-2 rounded-lg border border-brand/30 bg-brand/10 px-3 py-2 text-xs text-brand-deep dark:text-[#8fb5ff]">
               <InfoIcon className="mt-px size-3.5 shrink-0" />
               <span>
@@ -46,10 +50,11 @@ export function EditPanel({ ed, onSend, onSaveDraft, wide }: { ed: EditorApi; on
             </div>
           )}
 
-          <PaymentsCard ed={ed} />
+          {!ed.isQuote && <PaymentsCard ed={ed} />}
 
-          <motion.div initial="hidden" animate="show" variants={stagger} className="mt-3 space-y-2.5">
-            {[BusinessSection, ClientSection, DetailsSection, ItemsSection, TaxSection, PaymentSection, NotesSection, SignatureSection, MoreSection].map((S, i) => (
+          {/* a sent or answered quote is read-only until it's revised */}
+          <motion.div initial="hidden" animate="show" variants={stagger} inert={ed.locked} aria-disabled={ed.locked || undefined} className={cn("mt-3 space-y-2.5 transition-opacity", ed.locked && "opacity-60 select-none")}>
+            {[BusinessSection, ClientSection, ed.isQuote ? QuoteDetailsSection : DetailsSection, ItemsSection, TaxSection, PaymentSection, NotesSection, SignatureSection, MoreSection].map((S, i) => (
               <motion.div key={i} variants={rise}>
                 <S ed={ed} />
               </motion.div>
@@ -65,6 +70,8 @@ export function EditPanel({ ed, onSend, onSaveDraft, wide }: { ed: EditorApi; on
 
 function StickyFooter({ ed, onSend, onSaveDraft }: { ed: EditorApi; onSend: () => void; onSaveDraft: () => void }) {
   const t = ed.totals
+  const sendLabel = ed.mode === "quote" ? (ed.quote?.status === "sent" ? "Send again" : "Send quote") : ed.mode === "proforma" ? (ed.quote?.status === "sent" ? "Send again" : "Send proforma") : "Send invoice"
+  const canSend = !ed.isQuote || !ed.quote || ed.quote.status === "draft" || ed.quote.status === "sent"
   return (
     <div className="flex shrink-0 items-center gap-3 border-t bg-background/95 px-4 py-2.5 backdrop-blur">
       <Popover>
@@ -103,11 +110,13 @@ function StickyFooter({ ed, onSend, onSaveDraft }: { ed: EditorApi; onSend: () =
           </dl>
         </PopoverContent>
       </Popover>
-      <Button variant="outline" className="h-8 shrink-0 text-[13px]" onClick={onSaveDraft}>
-        Save draft
-      </Button>
-      <Button className="h-8 shrink-0 text-[13px]" onClick={onSend} title={emailInPlan(ed.plan) ? undefined : "Emailing invoices is a Pro feature"}>
-        <SendIcon /> Send invoice
+      {!ed.locked && (
+        <Button variant="outline" className="h-8 shrink-0 text-[13px]" onClick={onSaveDraft}>
+          Save draft
+        </Button>
+      )}
+      <Button className="h-8 shrink-0 text-[13px]" disabled={!canSend} onClick={onSend} title={emailInPlan(ed.plan) ? undefined : "Emailing is a Pro feature"}>
+        <SendIcon /> {sendLabel}
         {!emailInPlan(ed.plan) && <ProMark />}
       </Button>
     </div>

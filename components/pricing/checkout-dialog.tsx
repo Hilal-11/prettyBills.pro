@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Input } from "@/components/ui/input"
 import { inr, PLANS, priceOf, type PaidPlanId } from "@/lib/pricing"
 import { createClient } from "@/lib/supabase/client"
+import { dataChanged } from "@/lib/client/sync"
 
 export type Viewer = { name: string; email: string } | null
 
@@ -109,6 +110,7 @@ export function CheckoutDialog({ open, onOpenChange, initialPlan, viewer, return
     if (!res?.ok || !data?.ok) return setState({ step: "idle", error: data?.error ?? "Your payment went through, but Pro isn't on yet. It switches on by itself within a few minutes." })
     setState({ step: "done", renewsAt: data.renewsAt })
     window.history.replaceState(null, "", window.location.pathname)
+    dataChanged("settings")
     router.refresh()
   }
 

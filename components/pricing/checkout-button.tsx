@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import type { PaidPlanId } from "@/lib/pricing"
 
 import { CheckoutDialog, type Viewer } from "./checkout-dialog"
+import { dataChanged } from "@/lib/client/sync"
 
 /** Where to send someone back to after paying: only the editor's own pages. */
 function useReturnTo() {
@@ -53,6 +54,7 @@ export function CancelRenewal({ endsOn }: { endsOn: string }) {
     setBusy(false)
     if (!res?.ok) return setError(data?.error ?? "You seem to be offline. Try again.")
     setOpen(false)
+    dataChanged("settings")
     router.refresh()
   }
 

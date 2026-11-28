@@ -26,6 +26,8 @@ export type SampleInvoice = {
   /** Invoice asks for payment; receipt confirms it. Defaults to invoice. */
   kind?: "invoice" | "receipt"
   receipt?: { number: string; method: string; paidDate: string }
+  /** Quotes and proformas: the printed title, the date line and the foot note. */
+  doc?: { title: string; dueLabel: string; due: string; footnote: string }
 }
 
 export const sampleInvoice = raw as SampleInvoice

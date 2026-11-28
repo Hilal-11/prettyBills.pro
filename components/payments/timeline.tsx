@@ -5,6 +5,7 @@ import { cn } from "cn"
 import { formatDate } from "@/lib/billing/dates"
 import { isMode, MODE_LABEL } from "@/lib/billing/modes"
 import { formatINR } from "@/lib/billing/money"
+import { tdsLabel } from "@/lib/billing/tds"
 import type { ActivityItem } from "@/lib/data/types"
 
 /**
@@ -33,6 +34,8 @@ function changes(before: Record<string, unknown>, after: Record<string, unknown>
     const a = before[k]
     const b = after[k]
     if (k === "amount_paise") out.push(`amount ${formatINR(num(a) ?? 0)} → ${formatINR(num(b) ?? 0)}`)
+    else if (k === "tds_paise") out.push(`TDS ${formatINR(num(a) ?? 0)} → ${formatINR(num(b) ?? 0)}`)
+    else if (k === "tds_section") out.push(`TDS section ${tdsLabel(str(a)) || "none"} → ${tdsLabel(str(b)) || "none"}`)
     else if (k === "paid_on") out.push(`date ${formatDate(str(a))} → ${formatDate(str(b))}`)
     else if (k === "mode") out.push(`mode ${mode(a)} → ${mode(b)}`)
     else if (k === "reference") out.push(`reference ${str(a) ?? "none"} → ${str(b) ?? "none"}`)
@@ -47,11 +50,19 @@ function describe(a: ActivityItem): { icon: LucideIcon; tone: string; text: stri
   const inv = a.invoiceNumber ?? str(d.invoice_number) ?? "the invoice"
   switch (a.action) {
     case "payment.recorded":
-      return { icon: WalletIcon, tone: tone.money, text: `${who} recorded ${formatINR(num(d.amount_paise) ?? 0)} via ${mode(d.mode)}${str(d.reference) ? ` (${d.mode === "cheque" ? "cheque" : "ref"} ${d.reference})` : ""} on ${inv}${str(d.receipt_number) ? ` · Receipt ${d.receipt_number}` : ""}` }
+      return {
+        icon: WalletIcon,
+        tone: tone.money,
+        text: `${who} recorded ${formatINR(num(d.amount_paise) ?? 0)} via ${mode(d.mode)}${num(d.tds_paise) ? ` + ${formatINR(num(d.tds_paise)!)} TDS${str(d.tds_section) ? ` (${tdsLabel(str(d.tds_section))})` : ""}` : ""}${str(d.reference) ? ` (${d.mode === "cheque" ? "cheque" : "ref"} ${d.reference})` : ""} on ${inv}${str(d.receipt_number) ? ` · Receipt ${d.receipt_number}` : ""}`,
+      }
     case "payment.updated":
       return { icon: PencilLineIcon, tone: tone.info, text: `${who} changed the payment on ${inv}: ${changes((d.before ?? {}) as Record<string, unknown>, (d.after ?? {}) as Record<string, unknown>) || "details"}` }
     case "payment.deleted":
-      return { icon: Trash2Icon, tone: tone.bad, text: `${who} deleted a payment of ${formatINR(num(d.amount_paise) ?? 0)} on ${inv}${str(d.reason) ? ` · Reason: ${d.reason}` : ""}` }
+      return { icon: Trash2Icon, tone: tone.bad, text: `${who} deleted a payment of ${formatINR(num(d.amount_paise) ?? 0)}${num(d.tds_paise) ? ` + ${formatINR(num(d.tds_paise)!)} TDS` : ""} on ${inv}${str(d.reason) ? ` · Reason: ${d.reason}` : ""}` }
+    case "payment.tds_certificate_received":
+      return { icon: CircleCheckBigIcon, tone: tone.money, text: `${who} marked the TDS certificate received for ${formatINR(num(d.tds_paise) ?? 0)}${str(d.tds_section) ? ` (${tdsLabel(str(d.tds_section))})` : ""} on ${inv}` }
+    case "payment.tds_certificate_cleared":
+      return { icon: CircleCheckBigIcon, tone: tone.muted, text: `${who} marked the TDS certificate pending on ${inv}` }
     case "receipt.created":
       return { icon: ReceiptTextIcon, tone: tone.muted, text: `Receipt ${str(d.number) ?? ""} created` }
     case "receipt.revised":

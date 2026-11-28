@@ -23,7 +23,7 @@ import { Preview } from "./preview"
 import { SendDialog } from "./send-dialog"
 import { useToast } from "./toast"
 import { TopBar } from "./toolbar"
-import { useEditor, type View } from "./use-editor"
+import { useEditor, type EditorOptions, type View } from "./use-editor"
 
 /** localStorage that never throws (private mode, quota). */
 const safeStorage: LayoutStorage = {
@@ -45,8 +45,8 @@ const safeStorage: LayoutStorage = {
  * The invoice editor. Without `invoiceId` it starts a new invoice (with an
  * optional template or client picked); with one, it opens that invoice.
  */
-export function InvoiceWorkspace({ invoiceId, templateId, clientId }: { invoiceId?: string; templateId?: string; clientId?: string }) {
-  const ed = useEditor({ invoiceId, templateId, clientId })
+export function InvoiceWorkspace({ invoiceId, templateId, clientId, kind, quoteId, quoteDefaults }: EditorOptions) {
+  const ed = useEditor({ invoiceId, templateId, clientId, kind, quoteId, quoteDefaults })
   const toast = useToast()
   const router = useRouter()
   const wide = useMinWidth(1024)
@@ -77,6 +77,7 @@ export function InvoiceWorkspace({ invoiceId, templateId, clientId }: { invoiceI
 
   const saveDraft = React.useCallback(() => {
     if (ed.guest) return ed.askAccount("save")
+    if (ed.locked) return toast({ title: "This was sent", description: "Use Revise to make changes.", duration: 3000 })
     ed.retrySave()
     toast({ title: "Draft saved", tone: "success", duration: 2500 })
   }, [ed, toast])
@@ -136,7 +137,7 @@ export function InvoiceWorkspace({ invoiceId, templateId, clientId }: { invoiceI
   }, [ed, wide, saveDraft])
 
   if (!ed.ready) return <WorkspaceSkeleton />
-  if (ed.notFound) return <EditorNotFound />
+  if (ed.notFound) return <EditorNotFound quote={!!(kind || quoteId)} />
 
   const panel = <EditPanel ed={ed} onSend={requestSend} onSaveDraft={saveDraft} />
 
@@ -187,7 +188,7 @@ export function InvoiceWorkspace({ invoiceId, templateId, clientId }: { invoiceI
 
       <Dialog open={previewModal} onOpenChange={setPreviewModal}>
         <DialogContent className="h-[90dvh] max-w-[min(92vw,900px)] gap-0 overflow-hidden p-0 sm:max-w-[min(92vw,900px)]">
-          <DialogTitle className="sr-only">Invoice preview</DialogTitle>
+          <DialogTitle className="sr-only">{ed.isQuote ? "Quote preview" : "Invoice preview"}</DialogTitle>
           <Preview ed={ed} interactive={false} />
         </DialogContent>
       </Dialog>
@@ -198,13 +199,17 @@ export function InvoiceWorkspace({ invoiceId, templateId, clientId }: { invoiceI
   )
 }
 
-function EditorNotFound() {
+function EditorNotFound({ quote }: { quote?: boolean }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-12 items-center gap-2 border-b px-3">
         <SidebarTrigger className="-ml-1 text-foreground/70" />
       </div>
-      <MissingState title="We couldn't find that invoice" body="It may have been deleted, or it belongs to a different account. Check you're logged in as the right person." back={{ label: "Back to invoices", href: "/invoices" }} />
+      <MissingState
+        title={quote ? "We couldn't find that quote" : "We couldn't find that invoice"}
+        body="It may have been deleted, or it belongs to a different account. Check you're logged in as the right person."
+        back={quote ? { label: "Back to quotes", href: "/quotes" } : { label: "Back to invoices", href: "/invoices" }}
+      />
     </div>
   )
 }

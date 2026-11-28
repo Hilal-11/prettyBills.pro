@@ -6,21 +6,24 @@ import { useRouter } from "next/navigation"
 import { AlertTriangleIcon, CircleCheckIcon, LoaderIcon, SearchIcon, SendIcon } from "lucide-react"
 import { cn } from "cn"
 
+import { applyAvailableCreditAction } from "@/app/(app)/credit-notes/actions"
 import { markSentAction, openInvoicesAction, paymentContextAction, recordPaymentAction, updatePaymentAction, type PaymentActionResult, type PaymentContext } from "@/app/(app)/payments/actions"
 import { ProBadge } from "@/components/app/premium"
-import { DateField, Field } from "@/components/invoice-editor/fields"
+import { DateField, Field, SelectField } from "@/components/invoice-editor/fields"
 import { useToast } from "@/components/invoice-editor/toast"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { formatDate, todayIST } from "@/lib/billing/dates"
 import { isMode, MODE_LABEL, PAYMENT_MODES, referenceHint, referenceLabel, upperReference, type PaymentMode } from "@/lib/billing/modes"
 import { formatINR, paiseToInput, percentOf, toPaise } from "@/lib/billing/money"
 import { invoicesChanged } from "@/lib/client/workspace"
 import type { PaymentResult, PlanSummary } from "@/lib/data/types"
+import { rateLabel, splitWithTds, TDS_SECTIONS, tdsBase, tdsSection } from "@/lib/billing/tds"
 import { emailInPlan, upgradeHref } from "@/lib/pricing"
 
 import { ModeIcon } from "./mode-icon"
@@ -28,7 +31,11 @@ import { ModeIcon } from "./mode-icon"
 /** The payment being edited, if any. */
 export type EditingPayment = {
   id: string
+  /** What reached the bank. */
   amount: number
+  tdsPaise: number
+  tdsSection: string | null
+  tdsRateBp: number | null
   paidOn: string
   mode: PaymentMode
   reference: string | null
@@ -50,7 +57,9 @@ type Props = {
 
 type OpenInvoice = { id: string; number: string; clientName: string; balanceDue: number; dueDate: string | null; bucket: string }
 
-type Ctx = { invoice: PaymentContext; lastMode: PaymentMode | null; plan: PlanSummary }
+type Ctx = { invoice: PaymentContext; lastMode: PaymentMode | null; plan: PlanSummary; clientTds: { section: string; rateBp: number | null } | null; clientCredit: number }
+
+const SECTION_OPTIONS = TDS_SECTIONS.map((s) => ({ value: s.key, label: s.rateBp ? `${s.label} · ${rateLabel(s.rateBp)}` : s.label }))
 
 /**
  * Record a payment (or edit one). Amount defaults to the full balance, the
@@ -154,6 +163,12 @@ function PaymentForm({ invoiceId, editing, onClose, onSaved, onBack }: { invoice
   const today = React.useMemo(() => todayIST(), [])
 
   const [amountText, setAmountText] = React.useState(editing ? paiseToInput(editing.amount) : "")
+  // TDS the client deducted: settles the invoice alongside what was received
+  const [tdsOn, setTdsOn] = React.useState(!!editing?.tdsPaise)
+  const [sectionKey, setSectionKey] = React.useState(editing?.tdsSection ?? "professional")
+  const [tdsText, setTdsText] = React.useState(editing?.tdsPaise ? paiseToInput(editing.tdsPaise) : "")
+  // "Full balance" stays in force while TDS changes: received = balance − TDS
+  const [fullBalance, setFullBalance] = React.useState(!editing)
   const [paidOn, setPaidOn] = React.useState(editing?.paidOn ?? today)
   const [mode, setMode] = React.useState<PaymentMode>(editing?.mode ?? "upi")
   const [reference, setReference] = React.useState(editing?.reference ?? "")
@@ -168,10 +183,19 @@ function PaymentForm({ invoiceId, editing, onClose, onSaved, onBack }: { invoice
     const r = await paymentContextAction(invoiceId).catch(() => null)
     if (!r) return setLoadError("You seem to be offline. Try again.")
     if (!r.ok) return setLoadError(r.error)
-    const next: Ctx = { invoice: r.invoice, lastMode: isMode(r.lastMode) ? r.lastMode : null, plan: r.plan }
+    const next: Ctx = { invoice: r.invoice, lastMode: isMode(r.lastMode) ? r.lastMode : null, plan: r.plan, clientTds: r.clientTds, clientCredit: r.clientCredit }
     setCtx(next)
     if (!editing) {
-      setAmountText(paiseToInput(r.invoice.balanceDue))
+      // a client who deducted TDS last time probably will again
+      const usual = r.clientTds
+      const rate = usual ? (usual.rateBp ?? tdsSection(usual.section)?.rateBp ?? 0) : 0
+      if (usual && rate > 0) {
+        const split = splitWithTds({ total: r.invoice.total, taxable: r.invoice.taxable, rateBp: rate, settle: r.invoice.balanceDue })
+        setTdsOn(true)
+        setSectionKey(usual.section)
+        setTdsText(paiseToInput(split.tds))
+        setAmountText(paiseToInput(split.received))
+      } else setAmountText(paiseToInput(r.invoice.balanceDue))
       if (next.lastMode) setMode(next.lastMode)
       setEmailReceipt(emailInPlan(r.plan) && !!r.invoice.clientEmail)
     }
@@ -196,12 +220,34 @@ function PaymentForm({ invoiceId, editing, onClose, onSaved, onBack }: { invoice
   if (!ctx) return <FormSkeleton />
 
   const inv = ctx.invoice
-  // editing: this payment's amount is available again
-  const maxAmount = inv.balanceDue + (editing?.amount ?? 0)
-  const paidOthers = inv.amountPaid - (editing?.amount ?? 0)
+  // editing: what this payment settled is available again
+  const editingSettled = editing ? editing.amount + editing.tdsPaise : 0
+  const maxAmount = inv.balanceDue + editingSettled
+  const paidOthers = inv.amountPaid - editingSettled
   const amount = toPaise(amountText)
-  const amountError = !touched && !amountText ? null : amount === null ? "Enter an amount like 14575 or 14,575.50" : amount <= 0 ? "Enter an amount greater than ₹0." : amount > maxAmount ? `More than the balance due (${formatINR(maxAmount)}). Enter ${formatINR(maxAmount)} or less.` : null
-  const after = amount && amount > 0 && amount <= maxAmount ? inv.total - paidOthers - amount : null
+  const tds = tdsOn ? (toPaise(tdsText || "0") ?? null) : 0
+  const settled = amount !== null && tds !== null ? amount + tds : null
+  const section = tdsSection(sectionKey)
+  const rateBp = section?.rateBp ?? null
+  const amountError =
+    !touched && !amountText ? null : amount === null ? "Enter an amount like 14575 or 14,575.50" : settled !== null && settled <= 0 ? "Enter an amount greater than ₹0." : settled !== null && settled > maxAmount ? `Received + TDS is more than the balance due (${formatINR(maxAmount)}).` : null
+  const tdsError = !tdsOn ? null : tds === null ? "Enter TDS like 2083 or 2,083.50" : tds > 0 && !sectionKey ? "Pick the TDS section" : null
+  const after = settled !== null && settled > 0 && settled <= maxAmount ? inv.total - paidOthers - settled : null
+  // the helper: rate × value excluding GST, pro-rated to what this payment settles
+  const suggestion =
+    tdsOn && rateBp
+      ? fullBalance
+        ? splitWithTds({ total: inv.total, taxable: inv.taxable, rateBp, settle: maxAmount })
+        : amount !== null
+          ? splitWithTds({ total: inv.total, taxable: inv.taxable, rateBp, received: amount })
+          : null
+      : null
+  const suggestionBase = suggestion ? tdsBase(inv.total, inv.taxable, suggestion.received + suggestion.tds) : 0
+  const applySuggestion = () => {
+    if (!suggestion) return
+    setTdsText(paiseToInput(suggestion.tds))
+    if (fullBalance) setAmountText(paiseToInput(suggestion.received))
+  }
   const dateError = paidOn > today ? "Payment date can't be in the future." : null
   const early = paidOn < inv.issueDate
   const refLabel = referenceLabel(mode)
@@ -215,10 +261,20 @@ function PaymentForm({ invoiceId, editing, onClose, onSaved, onBack }: { invoice
   async function submit(e?: React.FormEvent) {
     e?.preventDefault()
     setTouched(true)
-    if (busy || amount === null || amount <= 0 || amount > maxAmount || dateError) return
+    if (busy || amount === null || settled === null || settled <= 0 || settled > maxAmount || dateError || tdsError) return
     setBusy(true)
     setError(null)
-    const body = { amountPaise: amount, paidOn, mode, reference: refLabel ? reference : undefined, note }
+    const withTds = tdsOn && (tds ?? 0) > 0
+    const body = {
+      amountPaise: amount,
+      tdsPaise: withTds ? tds! : 0,
+      tdsSection: withTds ? sectionKey : undefined,
+      tdsRateBp: withTds && rateBp !== null ? rateBp : undefined,
+      paidOn,
+      mode,
+      reference: refLabel ? reference : undefined,
+      note,
+    }
     let r: PaymentActionResult
     try {
       r = editing
@@ -236,7 +292,9 @@ function PaymentForm({ invoiceId, editing, onClose, onSaved, onBack }: { invoice
     onSaved?.(result)
     onClose()
     toast({
-      title: editing ? `Payment updated · Receipt ${result.receipt.number} revised` : `Payment of ${formatINR(result.payment.amount)} recorded · Receipt ${result.receipt.number}`,
+      title: editing
+        ? `Payment updated · Receipt ${result.receipt.number} revised`
+        : `${result.payment.tdsPaise ? `${formatINR(result.payment.amount + result.payment.tdsPaise)} settled` : `Payment of ${formatINR(result.payment.amount)}`} recorded · Receipt ${result.receipt.number}`,
       description:
         email?.status === "sent"
           ? `Receipt emailed to ${email.to}${email.outbox ? " (saved to the dev outbox)" : ""}`
@@ -278,7 +336,7 @@ function PaymentForm({ invoiceId, editing, onClose, onSaved, onBack }: { invoice
 
       <dl className="grid grid-cols-3 divide-x border-b bg-muted/30 text-center text-[12px] tabular-nums">
         <Stat k="Total" v={formatINR(inv.total)} />
-        <Stat k="Paid" v={formatINR(paidOthers)} />
+        <Stat k="Settled" v={formatINR(paidOthers)} />
         <Stat k="Balance" v={formatINR(inv.total - paidOthers)} strong />
       </dl>
 
@@ -294,7 +352,32 @@ function PaymentForm({ invoiceId, editing, onClose, onSaved, onBack }: { invoice
           </Notice>
         )}
 
-        <Field label="Amount" required htmlFor="pay-amount" error={amountError ?? undefined}>
+        {!editing && ctx.clientCredit > 0 && inv.balanceDue > 0 && (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-brand/30 bg-brand/[0.04] px-3 py-2 text-[13px]">
+            <span>
+              <span className="font-semibold tabular-nums">{formatINR(ctx.clientCredit)}</span> credit available for {inv.clientName || "this client"}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-7 px-2.5 text-xs"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true)
+                const r = await applyAvailableCreditAction(invoiceId).catch(() => ({ ok: false as const, error: "You seem to be offline. Try again." }))
+                setBusy(false)
+                if (!r.ok) return setError({ message: r.error })
+                invoicesChanged()
+                toast({ title: `${formatINR(r.applied)} credit applied to ${inv.number}`, tone: "success", duration: 3000 })
+                await load()
+              }}
+            >
+              Apply credit
+            </Button>
+          </div>
+        )}
+
+        <Field label="Amount received" required htmlFor="pay-amount" error={amountError ?? undefined}>
           <div className="relative">
             <span className="pointer-events-none absolute inset-y-0 left-2.5 grid place-items-center text-sm text-foreground/60">₹</span>
             <Input
@@ -303,7 +386,10 @@ function PaymentForm({ invoiceId, editing, onClose, onSaved, onBack }: { invoice
               inputMode="decimal"
               autoComplete="off"
               value={amountText}
-              onChange={(e) => setAmountText(e.target.value.replace(/[^\d.,]/g, ""))}
+              onChange={(e) => {
+                setFullBalance(false)
+                setAmountText(e.target.value.replace(/[^\d.,]/g, ""))
+              }}
               onBlur={() => {
                 setTouched(true)
                 const p = toPaise(amountText)
@@ -315,27 +401,130 @@ function PaymentForm({ invoiceId, editing, onClose, onSaved, onBack }: { invoice
             />
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <Chip onClick={() => setAmountText(paiseToInput(maxAmount))} active={amount === maxAmount}>
+            <Chip
+              onClick={() => {
+                setFullBalance(true)
+                setAmountText(paiseToInput(Math.max(0, maxAmount - (tds ?? 0))))
+              }}
+              active={settled === maxAmount}
+            >
               Full balance
             </Chip>
             {maxAmount >= 2 && (
-              <Chip onClick={() => setAmountText(paiseToInput(percentOf(maxAmount, 50)))} active={amount === percentOf(maxAmount, 50)}>
+              <Chip
+                onClick={() => {
+                  setFullBalance(false)
+                  setAmountText(paiseToInput(percentOf(maxAmount, 50)))
+                }}
+                active={amount === percentOf(maxAmount, 50)}
+              >
                 50%
               </Chip>
             )}
-            <span id="pay-amount-after" aria-live="polite" className="ml-auto text-xs tabular-nums">
-              {after === null ? null : after === 0 ? (
+          </div>
+        </Field>
+
+        {/* TDS the client deducted before paying */}
+        <div className={cn("grid gap-3 rounded-lg border px-3 py-2.5 transition-colors", tdsOn && "border-brand/30 bg-brand/[0.03]")}>
+          <label className="flex items-center justify-between gap-3 text-[13px]">
+            <span className="grid gap-0.5">
+              <span className="font-medium">Client deducted TDS</span>
+              <span className="text-xs text-muted-foreground">{ctx.clientTds && !editing ? "This client deducted TDS last time." : "Tax they paid to the government in your name. It counts as settled."}</span>
+            </span>
+            <Switch
+              checked={tdsOn}
+              onCheckedChange={(on) => {
+                setTdsOn(on)
+                if (!on) {
+                  setTdsText("")
+                  if (fullBalance) setAmountText(paiseToInput(maxAmount))
+                  return
+                }
+                const rate = tdsSection(sectionKey)?.rateBp
+                if (rate) {
+                  const split = fullBalance ? splitWithTds({ total: inv.total, taxable: inv.taxable, rateBp: rate, settle: maxAmount }) : splitWithTds({ total: inv.total, taxable: inv.taxable, rateBp: rate, received: amount ?? 0 })
+                  setTdsText(paiseToInput(split.tds))
+                  if (fullBalance) setAmountText(paiseToInput(split.received))
+                }
+              }}
+              aria-label="Client deducted TDS"
+            />
+          </label>
+          {tdsOn && (
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+              <Field label="TDS section" required htmlFor="pay-tds-section" error={tdsError === "Pick the TDS section" ? tdsError : undefined}>
+                <SelectField
+                  field="pay-tds-section"
+                  value={sectionKey}
+                  options={SECTION_OPTIONS}
+                  onChange={(v) => {
+                    setSectionKey(v)
+                    const rate = tdsSection(v)?.rateBp
+                    if (rate && fullBalance) {
+                      const split = splitWithTds({ total: inv.total, taxable: inv.taxable, rateBp: rate, settle: maxAmount })
+                      setTdsText(paiseToInput(split.tds))
+                      setAmountText(paiseToInput(split.received))
+                    }
+                  }}
+                />
+              </Field>
+              <Field label="TDS amount" required htmlFor="pay-tds" error={tdsError && tdsError !== "Pick the TDS section" ? tdsError : undefined}>
+                <div className="relative">
+                  <span className="pointer-events-none absolute inset-y-0 left-2.5 grid place-items-center text-sm text-foreground/60">₹</span>
+                  <Input
+                    id="pay-tds"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value={tdsText}
+                    onChange={(e) => {
+                      const v = e.target.value.replace(/[^\d.,]/g, "")
+                      setTdsText(v)
+                      // keep the total settled at the full balance while that's what was picked
+                      const t = toPaise(v || "0")
+                      if (fullBalance && t !== null && t <= maxAmount) setAmountText(paiseToInput(maxAmount - t))
+                    }}
+                    onBlur={() => {
+                      const p = toPaise(tdsText || "0")
+                      if (p !== null) setTdsText(paiseToInput(p))
+                    }}
+                    aria-invalid={!!tdsError || undefined}
+                    className="h-9 bg-background pl-7 text-right text-sm font-medium tabular-nums md:text-sm"
+                  />
+                </div>
+              </Field>
+              {suggestion && rateBp && suggestion.tds !== tds && (
+                <button type="button" onClick={applySuggestion} className="justify-self-start text-left text-xs font-medium text-brand hover:underline sm:col-span-2 dark:text-[#6da2ff]">
+                  Calculate at {rateLabel(rateBp)} on {formatINR(suggestionBase, { decimals: false })} (excluding GST) = {formatINR(suggestion.tds, { decimals: false })}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <p id="pay-amount-after" aria-live="polite" className="-mt-1 text-xs tabular-nums">
+          {after === null || settled === null ? null : (
+            <>
+              <span className="text-foreground/70">Settles </span>
+              <span className="font-semibold text-foreground">{formatINR(settled)}</span>
+              {tdsOn && (tds ?? 0) > 0 && (
+                <span className="text-foreground/70">
+                  {" "}
+                  ({formatINR(amount ?? 0, { decimals: false })} received + {formatINR(tds ?? 0, { decimals: false })} TDS)
+                </span>
+              )}{" "}
+              →{" "}
+              {after === 0 ? (
                 <span className="inline-flex items-center gap-1 font-medium text-emerald-700 dark:text-emerald-400">
                   <CircleCheckIcon className="size-3.5" /> Paid in full
                 </span>
               ) : (
                 <span className="text-foreground/70">
-                  After this payment: <span className="font-semibold text-foreground">Balance {formatINR(after)}</span> · Partially paid
+                  <span className="font-semibold text-foreground">Balance {formatINR(after)}</span> · Partially paid
                 </span>
               )}
-            </span>
-          </div>
-        </Field>
+            </>
+          )}
+        </p>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Payment date" required htmlFor="pay-date" error={dateError ?? undefined} help={early && !dateError ? "This is before the invoice date. Recording an advance?" : undefined}>

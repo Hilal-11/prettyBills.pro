@@ -1,11 +1,11 @@
 "use server"
 
-import { refresh } from "next/cache"
+import { afterChange } from "@/lib/cache/invalidate"
 
 import { nextInvoiceNumber, uid } from "@/lib/invoice/format"
 import { computeInvoiceTotals, formatMoney } from "@/lib/invoice/totals"
 import { formatDate } from "@/lib/invoice/format"
-import { addEvent, deleteDraft, duplicateInvoice, ensureShareLink, getInvoice, listNumbers, voidInvoice } from "@/lib/server/db/invoices"
+import { addEvent, deleteDraft, duplicateInvoice, ensureShareLink, getInvoice, listNumbers, markSentManually, voidInvoice } from "@/lib/server/db/invoices"
 import { dbMessage, today } from "@/lib/server/db/util"
 import { getSession, type ActionResult } from "@/lib/server/session"
 import { headers } from "next/headers"
@@ -24,15 +24,20 @@ async function run<T extends object>(id: string, fn: (s: NonNullable<Awaited<Ret
   try {
     const result = await fn(session)
     if (!result) return { ok: false, error: "That invoice doesn't exist any more." }
-    refresh()
+    await afterChange("invoice")
     return { ok: true, ...result }
   } catch (error) {
     return { ok: false, error: error instanceof Error && !("status" in error) ? error.message : dbMessage(error) }
   }
 }
 
+/** Void is only for invoices never sent; a sent one is cancelled with a credit note (GST). */
 export async function voidAction(id: string) {
-  return run(id, async ({ db, userId }) => ((await voidInvoice(db, userId, id)) ? {} : null))
+  return run(id, async ({ db, userId }) => {
+    const { data } = await db.from("invoices").select("sent_at").eq("id", id).maybeSingle()
+    if (data?.sent_at) throw new Error("This invoice was sent, so it can't be voided. Use Cancel invoice: it issues a credit note, as GST requires.")
+    return (await voidInvoice(db, userId, id)) ? {} : null
+  })
 }
 
 export async function deleteDraftAction(id: string) {
@@ -80,4 +85,32 @@ export async function shareLinkAction(id: string) {
     const origin = (process.env.PRETTYBILL_PUBLIC_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? process.env.PRETTYBILL_ORIGIN ?? `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}`).replace(/\/+$/, "")
     return { url: `${origin}/i/${link.token}` }
   })
+}
+
+/**
+ * Bulk actions from the invoices table, up to 100 at a time.
+ * "send" marks finished drafts as sent (anything else is skipped);
+ * "delete" deletes drafts only: sent invoices are kept for GST records.
+ */
+export async function bulkInvoicesAction(kind: "send" | "delete", ids: string[]): Promise<ActionResult<{ done: number; skipped: number }>> {
+  if (!Array.isArray(ids) || !ids.length || ids.length > 100 || !ids.every((id) => typeof id === "string" && ID.test(id))) return { ok: false, error: "Choose between 1 and 100 invoices." }
+  const session = await getSession()
+  if (!session) return { ok: false, error: "Your session has ended. Log in again." }
+  try {
+    let done = 0
+    if (kind === "delete") {
+      const { data, error } = await session.db.from("invoices").delete().in("id", ids).eq("status", "draft").select("id")
+      if (error) throw error
+      done = data.length
+    } else {
+      for (const id of ids) {
+        const r = await markSentManually(session.db, session.userId, id).catch(() => null)
+        if (r && r.status !== "draft") done++
+      }
+    }
+    await afterChange("invoice")
+    return { ok: true, done, skipped: ids.length - done }
+  } catch (error) {
+    return { ok: false, error: dbMessage(error) }
+  }
 }

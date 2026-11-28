@@ -10,7 +10,7 @@ import { cn } from "cn"
 import { spring } from "@/lib/motion"
 
 /** Search box that keeps its text in ?q=, so results survive a reload and can be shared. */
-export function ListSearch({ placeholder }: { placeholder: string }) {
+export function ListSearch({ placeholder, className }: { placeholder: string; className?: string }) {
   const router = useRouter()
   const pathname = usePathname()
   const params = useSearchParams()
@@ -32,10 +32,11 @@ export function ListSearch({ placeholder }: { placeholder: string }) {
   }, [value, params, pathname, router])
 
   return (
-    <div className="relative w-full sm:w-72">
+    <div className={cn("relative w-full sm:w-72", className)}>
       {pending ? <LoaderCircleIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 animate-spin text-muted-foreground" /> : <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />}
       <input
         type="search"
+        data-list-search
         value={value}
         onChange={(e) => setValue(e.target.value)}
         placeholder={placeholder}

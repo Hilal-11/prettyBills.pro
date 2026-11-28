@@ -10,6 +10,7 @@ import {
   DownloadIcon,
   EyeIcon,
   EyeOffIcon,
+  FileMinusIcon,
   FilesIcon,
   LinkIcon,
   LoaderCircleIcon,
@@ -24,6 +25,7 @@ import { cn } from "cn"
 
 import { deleteDraftAction, duplicateAction, reminderAction, shareLinkAction, voidAction } from "@/app/(app)/invoices/actions"
 import { markSentAction, payInFullAction, paymentContextAction } from "@/app/(app)/payments/actions"
+import { CancelInvoiceDialog } from "@/components/credit-notes/cancel-invoice-dialog"
 import { RecordPaymentDialog } from "@/components/payments/record-dialog"
 import { formatINR } from "@/lib/billing/money"
 import { isMode, MODE_LABEL } from "@/lib/billing/modes"
@@ -171,12 +173,13 @@ function Amount({ value }: { value: string }) {
 
 type Confirm = { kind: "delete" | "void" | "paid"; inv: InvoiceSummary; detail?: string; key?: string } | null
 
-function Actions({ inv, view }: { inv: InvoiceSummary; view: ListView }) {
+export function Actions({ inv, view }: { inv: InvoiceSummary; view: ListView }) {
   const router = useRouter()
   const toast = useToast()
   const [busy, setBusy] = React.useState<string | null>(null)
   const [confirm, setConfirm] = React.useState<Confirm>(null)
   const [recording, setRecording] = React.useState(false)
+  const [cancelling, setCancelling] = React.useState(false)
   const bucket = inv.bucket
 
   async function act<T extends object>(key: string, fn: () => Promise<({ ok: true } & T) | { ok: false; error: string }>, success?: (r: T) => string | void) {
@@ -196,6 +199,8 @@ function Actions({ inv, view }: { inv: InvoiceSummary; view: ListView }) {
     const ctx = await paymentContextAction(inv.id).catch(() => null)
     setBusy(null)
     if (!ctx?.ok) return toast({ title: ctx?.error ?? "You seem to be offline. Try again.", tone: "error" })
+    // this client usually deducts TDS: the full dialog, with TDS filled in, instead of a one-click confirm
+    if (ctx.clientTds) return setRecording(true)
     const mode = isMode(ctx.lastMode) ? MODE_LABEL[ctx.lastMode] : "UPI"
     setConfirm({ kind: "paid", inv, detail: `Record ${formatINR(ctx.invoice.balanceDue)} received today via ${mode}? A receipt is made for it.`, key: crypto.randomUUID() })
   }
@@ -305,7 +310,18 @@ function Actions({ inv, view }: { inv: InvoiceSummary; view: ListView }) {
               <Trash2Icon /> Delete draft
             </DropdownMenuItem>
           )}
-          {(bucket === "sent" || bucket === "overdue") && (
+          {/* sent invoices are reduced or cancelled with a credit note (GST); void is only for ones never sent */}
+          {(bucket === "sent" || bucket === "overdue" || bucket === "paid") && !inv.cancelled && (
+            <>
+              <DropdownMenuItem className={item} render={<Link href={`/credit-notes/new?invoice=${encodeURIComponent(inv.id)}`} />}>
+                <FileMinusIcon /> Create credit note
+              </DropdownMenuItem>
+              <DropdownMenuItem variant="destructive" className={item} onClick={() => setCancelling(true)}>
+                <BanIcon /> Cancel invoice
+              </DropdownMenuItem>
+            </>
+          )}
+          {(bucket === "sent" || bucket === "overdue") && !inv.sentAt && inv.amountPaid === 0 && !inv.creditedPaise && (
             <DropdownMenuItem variant="destructive" className={item} onClick={() => setConfirm({ kind: "void", inv })}>
               <BanIcon /> Void invoice
             </DropdownMenuItem>
@@ -356,6 +372,7 @@ function Actions({ inv, view }: { inv: InvoiceSummary; view: ListView }) {
         </AlertDialogContent>
       </AlertDialog>
       {(bucket === "sent" || bucket === "overdue") && <RecordPaymentDialog open={recording} onOpenChange={setRecording} invoiceId={inv.id} />}
+      {cancelling && <CancelInvoiceDialog open={cancelling} onOpenChange={setCancelling} invoice={{ id: inv.id, number: inv.number, total: inv.total, amountPaid: inv.amountPaid, issueDate: inv.issueDate }} />}
     </>
   )
 }

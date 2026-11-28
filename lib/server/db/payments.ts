@@ -20,17 +20,17 @@ import { DbError } from "./util"
 /* -------------------------------- writes ------------------------------- */
 
 type RawResult = {
-  payment: { id: string; amount_paise: number; paid_on: string; mode: PaymentMode; reference: string | null; note: string | null; deleted_at: string | null }
+  payment: { id: string; amount_paise: number; tds_paise?: number; tds_section?: string | null; paid_on: string; mode: PaymentMode; reference: string | null; note: string | null; deleted_at: string | null }
   receipt: { id: string; number: string; revision: number; status: "active" | "void"; public_token: string; emailed_at: string | null }
-  invoice: { id: string; number: string; total: number; amount_paid: number; balance_due: number; status: PaymentResult["invoice"]["status"]; paid_at: string | null }
+  invoice: { id: string; number: string; total: number; amount_paid: number; tds_paise?: number; balance_due: number; status: PaymentResult["invoice"]["status"]; paid_at: string | null }
   replayed?: boolean
 }
 
 function toResult(r: RawResult): PaymentResult {
   return {
-    payment: { id: r.payment.id, amount: Number(r.payment.amount_paise), paidOn: r.payment.paid_on, mode: r.payment.mode, reference: r.payment.reference, note: r.payment.note, deletedAt: r.payment.deleted_at },
+    payment: { id: r.payment.id, amount: Number(r.payment.amount_paise), tdsPaise: Number(r.payment.tds_paise ?? 0), tdsSection: r.payment.tds_section ?? null, paidOn: r.payment.paid_on, mode: r.payment.mode, reference: r.payment.reference, note: r.payment.note, deletedAt: r.payment.deleted_at },
     receipt: { id: r.receipt.id, number: r.receipt.number, revision: r.receipt.revision, status: r.receipt.status, publicToken: r.receipt.public_token, emailedAt: r.receipt.emailed_at },
-    invoice: { id: r.invoice.id, number: r.invoice.number, total: Number(r.invoice.total), amountPaid: Number(r.invoice.amount_paid), balanceDue: Number(r.invoice.balance_due), status: r.invoice.status, paidAt: r.invoice.paid_at },
+    invoice: { id: r.invoice.id, number: r.invoice.number, total: Number(r.invoice.total), amountPaid: Number(r.invoice.amount_paid), tdsPaise: Number(r.invoice.tds_paise ?? 0), balanceDue: Number(r.invoice.balance_due), status: r.invoice.status, paidAt: r.invoice.paid_at },
     replayed: r.replayed,
   }
 }
@@ -50,11 +50,31 @@ export function recordPayment(db: SupabaseClient, p: PaymentInput) {
     p_reference: p.reference ?? null,
     p_note: p.note ?? null,
     p_idempotency_key: p.idempotencyKey,
+    p_tds_paise: p.tdsPaise,
+    p_tds_section: p.tdsPaise > 0 ? (p.tdsSection ?? null) : null,
+    p_tds_rate_bp: p.tdsPaise > 0 ? (p.tdsRateBp ?? null) : null,
   })
 }
 
 export function updatePayment(db: SupabaseClient, p: PaymentUpdate) {
-  return call(db, "update_payment", { p_payment_id: p.paymentId, p_amount_paise: p.amountPaise, p_paid_on: p.paidOn, p_mode: p.mode, p_reference: p.reference ?? null, p_note: p.note ?? null })
+  return call(db, "update_payment", {
+    p_payment_id: p.paymentId,
+    p_amount_paise: p.amountPaise,
+    p_paid_on: p.paidOn,
+    p_mode: p.mode,
+    p_reference: p.reference ?? null,
+    p_note: p.note ?? null,
+    p_tds_paise: p.tdsPaise,
+    p_tds_section: p.tdsPaise > 0 ? (p.tdsSection ?? null) : null,
+    p_tds_rate_bp: p.tdsPaise > 0 ? (p.tdsRateBp ?? null) : null,
+  })
+}
+
+/** Form 16A / TDS certificate received (or not) for these payments. Returns how many changed. */
+export async function setTdsCertificate(db: SupabaseClient, paymentIds: string[], received: boolean) {
+  const { data, error } = await db.rpc("set_tds_certificate", { p_payment_ids: paymentIds, p_received: received })
+  if (error) throw new DbError(error)
+  return Number(data ?? 0)
 }
 
 export function deletePayment(db: SupabaseClient, paymentId: string, reason: string) {
@@ -67,7 +87,7 @@ export async function noteReceiptEvent(db: SupabaseClient, receiptId: string, ac
   if (error) console.warn(`[payments] couldn't note ${action}: ${error.message}`)
 }
 
-export async function noteExport(db: SupabaseClient, action: "payments.exported" | "statement.exported", data: Record<string, unknown>) {
+export async function noteExport(db: SupabaseClient, action: "payments.exported" | "statement.exported" | "tds.exported" | "invoices.exported", data: Record<string, unknown>) {
   const { error } = await db.rpc("note_export", { p_action: action, p_data: data })
   if (error) console.warn(`[payments] couldn't note ${action}: ${error.message}`)
 }
@@ -75,7 +95,7 @@ export async function noteExport(db: SupabaseClient, action: "payments.exported"
 /* -------------------------------- reads -------------------------------- */
 
 const PAYMENT_COLUMNS =
-  "id, invoice_id, invoice_number, invoice_date, invoice_total, client_id, client_name, client_gstin, amount_paise, paid_on, mode, reference, note, created_at, created_by, receipt_id, receipt_number, receipt_status, receipt_revision, receipt_emailed_at"
+  "id, invoice_id, invoice_number, invoice_date, invoice_total, client_id, client_name, client_gstin, amount_paise, paid_on, mode, reference, note, created_at, created_by, receipt_id, receipt_number, receipt_status, receipt_revision, receipt_emailed_at, tds_paise, tds_section, tds_rate_bp, tds_certificate_received, client_pan"
 
 type PaymentDbRow = {
   id: string
@@ -98,6 +118,11 @@ type PaymentDbRow = {
   receipt_status: "active" | "void" | null
   receipt_revision: number | null
   receipt_emailed_at: string | null
+  tds_paise: number
+  tds_section: string | null
+  tds_rate_bp: number | null
+  tds_certificate_received: boolean
+  client_pan: string | null
 }
 
 const toPayment = (r: PaymentDbRow): PaymentRow => ({
@@ -121,6 +146,11 @@ const toPayment = (r: PaymentDbRow): PaymentRow => ({
   receiptStatus: r.receipt_status,
   receiptRevision: r.receipt_revision ?? 1,
   receiptEmailedAt: r.receipt_emailed_at,
+  tdsPaise: Number(r.tds_paise ?? 0),
+  tdsSection: r.tds_section,
+  tdsRateBp: r.tds_rate_bp,
+  tdsCertificate: !!r.tds_certificate_received,
+  clientPan: r.client_pan,
 })
 
 /** An invoice's payments, oldest first (the order receipts are numbered in). */
@@ -136,7 +166,7 @@ export async function getPayment(db: SupabaseClient, id: string): Promise<Paymen
   return data ? toPayment(data as PaymentDbRow) : null
 }
 
-export type PaymentFilters = { from?: string | null; to?: string | null; clients?: string[]; modes?: PaymentMode[]; q?: string }
+export type PaymentFilters = { from?: string | null; to?: string | null; clients?: string[]; modes?: PaymentMode[]; q?: string; hasTds?: boolean }
 
 /** PostgREST filter text: escape what it treats specially. */
 const term = (q: string) => q.replace(/[%_\\]/g, (c) => `\\${c}`).replace(/[,()"]/g, " ").trim()
@@ -160,6 +190,7 @@ export async function listPayments(db: SupabaseClient, f: PaymentFilters, opts: 
   if (f.to) query = query.lte("paid_on", f.to)
   if (f.clients?.length) query = query.in("client_id", f.clients)
   if (f.modes?.length) query = query.in("mode", f.modes)
+  if (f.hasTds) query = query.gt("tds_paise", 0)
   const q = f.q ? term(f.q) : ""
   if (q) query = query.or(`reference.ilike.%${q}%,invoice_number.ilike.%${q}%,client_name.ilike.%${q}%,receipt_number.ilike.%${q}%`)
   const c = decodeCursor(opts.cursor)
@@ -171,13 +202,33 @@ export async function listPayments(db: SupabaseClient, f: PaymentFilters, opts: 
   return { payments: page, next: rows.length > limit ? encodeCursor(page[page.length - 1]) : null }
 }
 
-export type PaymentSummary = { total: number; count: number; byMode: Partial<Record<PaymentMode, number>> }
+/** `total` is money received; `tds` what clients deducted; `settled` both. */
+export type PaymentSummary = { total: number; tds: number; settled: number; count: number; byMode: Partial<Record<PaymentMode, number>> }
 
 export async function paymentSummary(db: SupabaseClient, f: PaymentFilters): Promise<PaymentSummary> {
-  const { data, error } = await db.rpc("payment_summary", { p_from: f.from ?? null, p_to: f.to ?? null, p_clients: f.clients?.length ? f.clients : null, p_modes: f.modes?.length ? f.modes : null, p_q: f.q?.trim() || null })
+  const { data, error } = await db.rpc("payment_summary", { p_from: f.from ?? null, p_to: f.to ?? null, p_clients: f.clients?.length ? f.clients : null, p_modes: f.modes?.length ? f.modes : null, p_q: f.q?.trim() || null, p_has_tds: f.hasTds ? true : null })
   if (error) throw new DbError(error)
-  const s = (data ?? {}) as { total?: number; count?: number; by_mode?: Record<string, number> }
-  return { total: Number(s.total ?? 0), count: Number(s.count ?? 0), byMode: Object.fromEntries(Object.entries(s.by_mode ?? {}).map(([k, v]) => [k, Number(v)])) }
+  const s = (data ?? {}) as { total?: number; tds?: number; settled?: number; count?: number; by_mode?: Record<string, number> }
+  const total = Number(s.total ?? 0)
+  const tds = Number(s.tds ?? 0)
+  return { total, tds, settled: Number(s.settled ?? total + tds), count: Number(s.count ?? 0), byMode: Object.fromEntries(Object.entries(s.by_mode ?? {}).map(([k, v]) => [k, Number(v)])) }
+}
+
+/** The TDS a client deducted on their latest payment, so the dialog can start there. */
+export async function lastClientTds(db: SupabaseClient, clientId: string | null): Promise<{ section: string; rateBp: number | null } | null> {
+  if (!clientId) return null
+  const { data, error } = await db.from("payments").select("tds_paise, tds_section, tds_rate_bp").eq("client_id", clientId).is("deleted_at", null).order("paid_on", { ascending: false }).order("created_at", { ascending: false }).limit(1).maybeSingle()
+  if (error || !data || !(Number(data.tds_paise) > 0) || !data.tds_section) return null
+  return { section: data.tds_section as string, rateBp: (data.tds_rate_bp as number | null) ?? null }
+}
+
+/** Every payment with TDS in a date range (the TDS tab and its CSV), oldest first. Capped at 5,000. */
+export async function listTdsPayments(db: SupabaseClient, from: string, to: string, clients?: string[]) {
+  let query = db.from("payment_rows").select(PAYMENT_COLUMNS).is("deleted_at", null).gt("tds_paise", 0).gte("paid_on", from).lte("paid_on", to)
+  if (clients?.length) query = query.in("client_id", clients)
+  const { data, error } = await query.order("paid_on").order("created_at").limit(5000)
+  if (error) throw new DbError(error)
+  return (data as PaymentDbRow[]).map(toPayment)
 }
 
 /** The mode the user picked last, so the dialog starts there. */
@@ -189,7 +240,7 @@ export async function lastPaymentMode(db: SupabaseClient): Promise<PaymentMode |
 
 /* ------------------------------- receipts ------------------------------ */
 
-const RECEIPT_COLUMNS = "id, number, receipt_date, revision, status, public_token, link_active, emailed_at, email_count, void_reason, invoice_id, invoice_number, client_id, client_name, payment_id, amount_paise, mode, reference"
+const RECEIPT_COLUMNS = "id, number, receipt_date, revision, status, public_token, link_active, emailed_at, email_count, void_reason, invoice_id, invoice_number, client_id, client_name, payment_id, amount_paise, mode, reference, tds_paise, tds_section"
 
 type ReceiptDbRow = {
   id: string
@@ -210,6 +261,8 @@ type ReceiptDbRow = {
   amount_paise: number
   mode: PaymentMode
   reference: string | null
+  tds_paise: number | null
+  tds_section: string | null
 }
 
 const toReceipt = (r: ReceiptDbRow): ReceiptRow => ({
@@ -231,6 +284,8 @@ const toReceipt = (r: ReceiptDbRow): ReceiptRow => ({
   amount: Number(r.amount_paise),
   mode: r.mode,
   reference: r.reference,
+  tdsPaise: Number(r.tds_paise ?? 0),
+  tdsSection: r.tds_section,
 })
 
 export type ReceiptFilters = PaymentFilters & { status?: "active" | "void" | "all" }
@@ -266,26 +321,27 @@ export async function getReceiptView(db: SupabaseClient, receiptId: string): Pro
   if (!/^[0-9a-f-]{36}$/.test(receiptId)) return null
   const { data: r, error } = await db
     .from("receipts")
-    .select("id, number, receipt_date, revision, status, void_reason, public_token, link_active, emailed_at, template_id, page_color, invoice_id, payment_id, payments(id, amount_paise, paid_on, mode, reference, note, created_at)")
+    .select("id, number, receipt_date, revision, status, void_reason, public_token, link_active, emailed_at, template_id, page_color, invoice_id, payment_id, payments(id, amount_paise, tds_paise, tds_section, paid_on, mode, reference, note, created_at)")
     .eq("id", receiptId)
     .maybeSingle()
   if (error) throw new DbError(error)
   if (!r) return null
-  const pay = (Array.isArray(r.payments) ? r.payments[0] : r.payments) as { id: string; amount_paise: number; paid_on: string; mode: PaymentMode; reference: string | null; note: string | null; created_at: string }
+  const pay = (Array.isArray(r.payments) ? r.payments[0] : r.payments) as { id: string; amount_paise: number; tds_paise: number; tds_section: string | null; paid_on: string; mode: PaymentMode; reference: string | null; note: string | null; created_at: string }
   const [{ data: inv, error: invError }, { data: siblings, error: sibError }] = await Promise.all([
     db.from("invoices").select("data, status, total").eq("id", r.invoice_id).single(),
-    db.from("payments").select("id, amount_paise, paid_on, created_at").eq("invoice_id", r.invoice_id).is("deleted_at", null),
+    db.from("payments").select("id, amount_paise, tds_paise, paid_on, created_at").eq("invoice_id", r.invoice_id).is("deleted_at", null),
   ])
   if (invError) throw new DbError(invError)
   if (sibError) throw new DbError(sibError)
   const invoice = { ...(inv.data as Invoice), status: inv.status } as Invoice
   const total = Number(inv.total)
-  const active = (siblings as { id: string; amount_paise: number; paid_on: string; created_at: string }[]).map((p) => ({ id: p.id, amount: Number(p.amount_paise), paidOn: p.paid_on, createdAt: p.created_at }))
+  // balances work on what each payment settled: received + TDS
+  const active = (siblings as { id: string; amount_paise: number; tds_paise: number; paid_on: string; created_at: string }[]).map((p) => ({ id: p.id, amount: Number(p.amount_paise) + Number(p.tds_paise ?? 0), paidOn: p.paid_on, createdAt: p.created_at }))
   // a voided receipt still shows what it said: count its payment in its own place
-  const withThis = active.some((p) => p.id === pay.id) ? active : [...active, { id: pay.id, amount: Number(pay.amount_paise), paidOn: pay.paid_on, createdAt: pay.created_at }]
+  const withThis = active.some((p) => p.id === pay.id) ? active : [...active, { id: pay.id, amount: Number(pay.amount_paise) + Number(pay.tds_paise ?? 0), paidOn: pay.paid_on, createdAt: pay.created_at }]
   return {
     receipt: { id: r.id, number: r.number, date: r.receipt_date, revision: r.revision, status: r.status, voidReason: r.void_reason, publicToken: r.public_token, linkActive: r.link_active, emailedAt: r.emailed_at, templateId: r.template_id, pageColor: r.page_color },
-    payment: { id: pay.id, amount: Number(pay.amount_paise), paidOn: pay.paid_on, mode: pay.mode, reference: pay.reference, note: pay.note },
+    payment: { id: pay.id, amount: Number(pay.amount_paise), tdsPaise: Number(pay.tds_paise ?? 0), tdsSection: pay.tds_section, paidOn: pay.paid_on, mode: pay.mode, reference: pay.reference, note: pay.note },
     invoice,
     balance: receiptBalance(withThis, pay.id, total),
   }
@@ -302,21 +358,22 @@ export async function sharedReceipt(db: SupabaseClient, token: string): Promise<
   if (!data) return null
   const d = data as {
     receipt: { id: string; number: string; receipt_date: string; revision: number; status: "active" | "void"; template_id: string; page_color: "white" | "black" }
-    payment: { id: string; amount_paise: number; paid_on: string; mode: PaymentMode; reference: string | null }
+    payment: { id: string; amount_paise: number; tds_paise?: number; tds_section?: string | null; paid_on: string; mode: PaymentMode; reference: string | null }
     invoice: Invoice & { total: number }
     invoice_link: string | null
     paid_before: number
   }
   const total = Number(d.invoice.total)
   const amount = Number(d.payment.amount_paise)
+  const tds = Number(d.payment.tds_paise ?? 0)
   const paidBefore = Number(d.paid_before)
-  const remaining = Math.max(0, total - paidBefore - amount)
+  const remaining = Math.max(0, total - paidBefore - amount - tds)
   return {
     receipt: { id: d.receipt.id, number: d.receipt.number, date: d.receipt.receipt_date, revision: d.receipt.revision, status: d.receipt.status, voidReason: null, templateId: d.receipt.template_id, pageColor: d.receipt.page_color },
-    payment: { id: d.payment.id, amount, paidOn: d.payment.paid_on, mode: d.payment.mode, reference: d.payment.reference },
+    payment: { id: d.payment.id, amount, tdsPaise: tds, tdsSection: d.payment.tds_section ?? null, paidOn: d.payment.paid_on, mode: d.payment.mode, reference: d.payment.reference },
     invoice: d.invoice,
     invoiceLink: d.invoice_link,
-    balance: { total, paidBefore, thisPayment: amount, remaining, paidInFull: remaining === 0 },
+    balance: { total, paidBefore, thisPayment: amount + tds, remaining, paidInFull: remaining === 0 },
   }
 }
 
@@ -365,4 +422,23 @@ export async function listRecentPaymentActivity(db: SupabaseClient, limit = 8) {
   const { data, error } = await db.from("activities").select("id, action, invoice_id, data, created_at").in("action", ["payment.recorded", "payment.deleted"]).order("created_at", { ascending: false }).limit(limit)
   if (error) throw new DbError(error)
   return data as { id: string; action: string; invoice_id: string | null; data: Record<string, unknown>; created_at: string }[]
+}
+
+/** How many receipts match the filters: active, void, and emailed (for the tabs and headline numbers). */
+export async function receiptCounts(db: SupabaseClient, f: ReceiptFilters) {
+  const base = (status?: "active" | "void", emailed?: boolean) => {
+    let q = db.from("receipt_rows").select("id", { count: "exact", head: true })
+    if (status) q = q.eq("status", status)
+    if (emailed) q = q.not("emailed_at", "is", null)
+    if (f.from) q = q.gte("receipt_date", f.from)
+    if (f.to) q = q.lte("receipt_date", f.to)
+    if (f.clients?.length) q = q.in("client_id", f.clients)
+    if (f.modes?.length) q = q.in("mode", f.modes)
+    const t = f.q ? term(f.q) : ""
+    if (t) q = q.or(`number.ilike.%${t}%,invoice_number.ilike.%${t}%,client_name.ilike.%${t}%,reference.ilike.%${t}%`)
+    return q
+  }
+  const [active, voided, emailed] = await Promise.all([base("active"), base("void"), base("active", true)])
+  for (const r of [active, voided, emailed]) if (r.error) throw new DbError(r.error)
+  return { active: active.count ?? 0, void: voided.count ?? 0, emailed: emailed.count ?? 0 }
 }

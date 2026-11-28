@@ -7,6 +7,7 @@ import { cn } from "cn"
 
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { useFont } from "@/hooks/use-font"
 import { useTheme, type ThemeMode } from "@/hooks/use-theme"
 import { setEditorView, type EditorView } from "@/lib/client/editor-events"
 import { KEYS, readLocal, writeLocal } from "@/lib/client/local"
@@ -15,6 +16,7 @@ import { updateSettings } from "@/lib/client/workspace"
 import type { Signature } from "@/lib/invoice/types"
 import { Skeleton } from "@/components/ui/skeleton"
 import { spring } from "@/lib/motion"
+import { UI_FONTS } from "@/lib/theme"
 
 import { GuestCard, Group, Row, SavedTick, TabHeader, useSavedFlash } from "./ui"
 import { useSettings, type Account } from "./use-account"
@@ -24,6 +26,7 @@ export function PreferencesTab({ account }: { account: Account }) {
     <>
       <TabHeader title="Preferences" description="How PrettyBills looks and behaves on this device." />
       <Appearance />
+      <FontPicker />
       <EditorLayout />
       {account.status === "user" ? (
         <InvoiceDefaultsLoader />
@@ -72,6 +75,52 @@ function Appearance() {
           )
         })}
       </div>
+    </Group>
+  )
+}
+
+/* ------------------------------- font ------------------------------- */
+
+/** Interface font: each card is drawn in its own face. Applies at once, on this device. */
+function FontPicker() {
+  const { font, setFont } = useFont()
+  return (
+    <Group title="Font" description="The typeface for menus, tables and forms. Your invoices keep their template's type.">
+      <div role="radiogroup" aria-label="Interface font" className="grid grid-cols-2 gap-2.5 p-4 sm:grid-cols-4">
+        {UI_FONTS.map((f) => {
+          const on = font === f.id
+          return (
+            <button
+              key={f.id}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              onClick={() => setFont(f.id)}
+              style={{ fontFamily: `${f.family}, ui-sans-serif, system-ui` }}
+              className={cn(
+                "relative grid gap-1 rounded-lg border-2 px-3 py-2.5 text-left transition-[border-color,box-shadow,background-color] outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+                on ? "border-brand bg-brand/5 shadow-[0_0_0_3px_color-mix(in_oklab,var(--brand)_15%,transparent)]" : "border-border hover:border-foreground/25 hover:bg-muted/40"
+              )}
+            >
+              <span className="text-2xl leading-none font-medium">Aa</span>
+              <span className={cn("mt-1 truncate text-[13px]", on ? "font-semibold" : "font-medium")}>{f.label}</span>
+              <span className="text-[11px] text-muted-foreground">{f.kind}</span>
+              {on && (
+                <motion.span layoutId="font-check" transition={spring} className="absolute top-2 right-2 grid size-4.5 place-items-center rounded-full bg-brand text-white">
+                  <CheckIcon className="size-3" />
+                </motion.span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+      {font !== "geist" && (
+        <div className="flex justify-end border-t px-4 py-2">
+          <Button variant="ghost" className="h-7 px-2 text-xs text-muted-foreground" onClick={() => setFont("geist")}>
+            Reset to Geist
+          </Button>
+        </div>
+      )}
     </Group>
   )
 }

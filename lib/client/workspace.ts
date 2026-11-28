@@ -2,6 +2,7 @@ import { EMPTY_SETTINGS, type Workspace, type WorkspaceSettings } from "@/lib/da
 import { SEED_CATALOG, SEED_CLIENTS, type CatalogItem, type Client } from "@/lib/invoice/defaults"
 
 import { KEYS, readLocal } from "./local"
+import { dataChanged } from "./sync"
 
 /**
  * Browser side of the user's saved data. Everything goes to the server
@@ -13,6 +14,8 @@ const CHANGED = "pb:invoices-changed"
 /** Something about the user's invoices changed: the sidebar counts and lists refresh. */
 export function invoicesChanged() {
   window.dispatchEvent(new Event(CHANGED))
+  // and every cached copy (sidebar counts, visited pages, the server cache)
+  dataChanged("invoice")
 }
 
 export function onInvoicesChanged(cb: () => void) {
@@ -24,6 +27,7 @@ async function send(url: string, method: string, body?: unknown) {
   const res = await fetch(url, { method, headers: body ? { "content-type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined }).catch(() => null)
   if (!res) throw new Error("You seem to be offline. Try again in a moment.")
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `Error ${res.status}`)
+  if (method !== "GET") dataChanged(url.startsWith("/api/clients") ? "client" : url.startsWith("/api/items") ? "item" : "settings")
   return res
 }
 

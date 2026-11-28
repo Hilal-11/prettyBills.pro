@@ -1,195 +1,23 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { FilePlus2Icon, LoaderCircleIcon, LockIcon, MoreHorizontalIcon, PencilLineIcon, PlusIcon, SearchIcon, Trash2Icon, UsersIcon } from "lucide-react"
+import { LoaderCircleIcon, LockIcon } from "lucide-react"
 import { cn } from "cn"
 
 import { Combobox, SelectField } from "@/components/invoice-editor/fields"
-import { useToast } from "@/components/invoice-editor/toast"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { Button, buttonVariants } from "@/components/ui/button"
+import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import { deleteClientRemote, saveClientRemote } from "@/lib/client/workspace"
-import type { ClientWithStats } from "@/lib/data/types"
+import { saveClientRemote } from "@/lib/client/workspace"
 import type { Client } from "@/lib/invoice/defaults"
 import { STATES, stateLabel } from "@/lib/invoice/config"
-import { formatDate, uid } from "@/lib/invoice/format"
-import { formatMoney } from "@/lib/invoice/totals"
+import { uid } from "@/lib/invoice/format"
 import { panFromGstin, RX } from "@/lib/invoice/validate"
 
-import { EmptyState } from "./states"
-
-const money = (n: number) => formatMoney(n, { whole: true })
-const COLS = "minmax(0,2fr) minmax(0,1.2fr) 5rem 1fr 1fr 8.5rem"
-
-/** /clients: everyone you bill, what they've been billed and what they owe. */
-export function ClientsManager({ clients }: { clients: ClientWithStats[] }) {
-  const [q, setQ] = React.useState("")
-  const [owesOnly, setOwesOnly] = React.useState(false)
-  const [byOwed, setByOwed] = React.useState(false)
-  const [editing, setEditing] = React.useState<Client | "new" | null>(null)
-  const [deleting, setDeleting] = React.useState<ClientWithStats | null>(null)
-  const router = useRouter()
-  const toast = useToast()
-
-  const term = q.trim().toLowerCase()
-  const matched = (term ? clients.filter((c) => [c.name, c.gstin, c.email, c.phone, c.address.city].some((v) => v?.toLowerCase().includes(term))) : clients).filter((c) => !owesOnly || c.outstanding > 0)
-  const shown = byOwed ? [...matched].sort((a, b) => b.outstanding - a.outstanding || a.name.localeCompare(b.name)) : matched
-  const owed = clients.reduce((s, c) => s + c.outstanding, 0)
-
-  async function remove(c: ClientWithStats) {
-    setDeleting(null)
-    try {
-      await deleteClientRemote(c.id)
-      toast({ title: `${c.name} removed`, description: "Their invoices keep their details.", tone: "success", duration: 3000 })
-      router.refresh()
-    } catch (e) {
-      toast({ title: (e as Error).message, tone: "error" })
-    }
-  }
-
-  return (
-    <>
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-[13px] text-muted-foreground">
-          {clients.length} client{clients.length === 1 ? "" : "s"}
-          {owed > 0 && (
-            <>
-              {" "}
-              · <span className="font-medium text-foreground">{money(owed)}</span> owed to you
-            </>
-          )}
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            aria-pressed={owesOnly}
-            onClick={() => setOwesOnly((v) => !v)}
-            className={cn("h-8 shrink-0 rounded-lg border px-2.5 text-[13px] transition-colors", owesOnly ? "border-brand/40 bg-brand/8 font-medium text-foreground" : "bg-background text-foreground/75 hover:bg-muted")}
-          >
-            Owes you
-          </button>
-          <div className="relative w-full sm:w-64">
-            <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="search"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search clients"
-              aria-label="Search clients"
-              className="h-8 w-full rounded-lg border bg-background pr-3 pl-8 text-[13px] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-            />
-          </div>
-          <Button className="h-8 shrink-0 gap-1.5 px-3 text-[13px]" onClick={() => setEditing("new")}>
-            <PlusIcon /> Add client
-          </Button>
-        </div>
-      </div>
-
-      {clients.length === 0 ? (
-        <EmptyState icon={UsersIcon} title="No clients yet" body="Save the people and businesses you bill. Their name, GSTIN and address then fill in with one click.">
-          <Button className="mt-5 h-8 gap-1.5 px-3 text-[13px]" onClick={() => setEditing("new")}>
-            <PlusIcon /> Add your first client
-          </Button>
-        </EmptyState>
-      ) : shown.length === 0 ? (
-        <EmptyState icon={SearchIcon} title={`No clients match “${q}”`} body="Search by name, GSTIN, email, phone or city." />
-      ) : (
-        <div className="overflow-hidden rounded-xl border bg-background">
-          <div className="hidden grid-cols-(--cols) gap-4 border-b bg-muted/40 px-4 py-2 text-[11px] font-medium tracking-wide text-muted-foreground uppercase md:grid" style={{ "--cols": COLS } as React.CSSProperties}>
-            <span>Client</span>
-            <span>Location</span>
-            <span className="text-right">Invoices</span>
-            <span className="text-right">Billed</span>
-            <button type="button" onClick={() => setByOwed((v) => !v)} aria-label={byOwed ? "Sorted by amount owed. Sort by name" : "Sort by amount owed"} className={cn("text-right uppercase hover:text-foreground", byOwed && "text-foreground")}>
-              Owes you {byOwed ? "↓" : ""}
-            </button>
-            <span />
-          </div>
-          <ul className="divide-y">
-            {shown.map((c) => (
-              <li key={c.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 px-4 py-3 text-[13px] md:grid-cols-(--cols)" style={{ "--cols": COLS } as React.CSSProperties}>
-                <Link href={`/clients/${encodeURIComponent(c.id)}`} className="min-w-0 text-left outline-none hover:underline focus-visible:underline">
-                  <span className="block truncate font-semibold">{c.name}</span>
-                  <span className="block truncate text-muted-foreground">{c.gstin || c.email || c.phone || "No GSTIN"}</span>
-                </Link>
-                <span className="hidden truncate text-foreground/85 md:block">{[c.address.city, c.address.stateCode && stateLabel(c.address.stateCode)].filter(Boolean).join(", ") || "—"}</span>
-                <span className="hidden text-right tabular-nums md:block">{c.invoices || "—"}</span>
-                <span className="hidden text-right tabular-nums md:block">{c.billed ? money(c.billed) : "—"}</span>
-                <span className={cn("text-right font-medium tabular-nums", c.overdue > 0 && "text-red-600 dark:text-red-400")} title={c.overdue > 0 ? `${money(c.overdue)} overdue` : undefined}>
-                  {c.outstanding ? money(c.outstanding) : <span className="text-muted-foreground">—</span>}
-                </span>
-                <div className="col-span-2 flex items-center justify-end gap-1 md:col-span-1">
-                  <Link href={`/create?client=${encodeURIComponent(c.id)}`} className={cn(buttonVariants({ variant: "outline" }), "h-7 gap-1.5 px-2.5 text-xs")}>
-                    <FilePlus2Icon /> Invoice
-                  </Link>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`More actions for ${c.name}`} className="text-foreground/70" />}>
-                      <MoreHorizontalIcon />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="min-w-44 rounded-xl p-1.5">
-                      <DropdownMenuItem className="gap-2 py-1.5 text-[13px]" onClick={() => setEditing(c)}>
-                        <PencilLineIcon /> Edit details
-                      </DropdownMenuItem>
-                      <DropdownMenuItem className="gap-2 py-1.5 text-[13px]" render={<Link href={`/clients/${encodeURIComponent(c.id)}`} />}>
-                        <SearchIcon /> Balance and statement
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem variant="destructive" className="gap-2 py-1.5 text-[13px]" onClick={() => setDeleting(c)}>
-                        <Trash2Icon /> Remove client
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-                {c.lastInvoiceDate && <span className="col-span-2 text-[11px] text-muted-foreground md:hidden">Last invoice {formatDate(c.lastInvoiceDate)}</span>}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <ClientDialog
-        client={editing}
-        onClose={() => setEditing(null)}
-        onSaved={(c, isNew) => {
-          setEditing(null)
-          toast({ title: isNew ? `${c.name} added` : `${c.name} updated`, tone: "success", duration: 2500 })
-          router.refresh()
-        }}
-      />
-
-      <AlertDialog open={deleting !== null} onOpenChange={(open) => !open && setDeleting(null)}>
-        <AlertDialogContent className="sm:max-w-[400px]">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove {deleting?.name}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              They won&apos;t be in your client list any more. {deleting?.invoices ? `Their ${deleting.invoices} invoice${deleting.invoices === 1 ? "" : "s"} stay as they are.` : ""}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="h-8 text-[13px]">Cancel</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" className="h-8 text-[13px]" onClick={() => deleting && remove(deleting)}>
-              Remove client
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
-  )
-}
+/**
+ * The add/edit client dialog, used by /clients (components/clients) and
+ * anywhere else a client is created.
+ */
 
 /* ------------------------------- the form ------------------------------ */
 
@@ -198,7 +26,7 @@ const COUNTRIES = ["India", "United Arab Emirates", "United States", "United Kin
 const stateOptions = STATES.map((s) => ({ value: s.code, label: `${s.name} (${s.code})`, keywords: [s.code] }))
 const ctl = "h-9 bg-background text-[13px] md:text-[13px]"
 
-function ClientDialog({ client, onClose, onSaved }: { client: Client | "new" | null; onClose: () => void; onSaved: (c: Client, isNew: boolean) => void }) {
+export function ClientDialog({ client, onClose, onSaved }: { client: Client | "new" | null; onClose: () => void; onSaved: (c: Client, isNew: boolean) => void }) {
   return (
     <Dialog open={client !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-h-[92dvh] gap-0 overflow-y-auto p-0 sm:max-w-[560px]">

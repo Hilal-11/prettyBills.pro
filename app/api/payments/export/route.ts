@@ -3,12 +3,13 @@ import { BOM, csvAmount, csvRow } from "@/lib/billing/csv"
 import { todayIST } from "@/lib/billing/dates"
 import { parseFilters } from "@/lib/billing/filters"
 import { MODE_LABEL } from "@/lib/billing/modes"
+import { tdsLabel } from "@/lib/billing/tds"
 import { listPayments, noteExport } from "@/lib/server/db/payments"
 import { json } from "@/lib/server/http"
 import { rateLimit } from "@/lib/server/rate-limit"
 import { createClient } from "@/lib/supabase/server"
 
-const HEADER = ["Payment date", "Client", "Client GSTIN", "Invoice no", "Invoice date", "Mode", "Reference", "Amount (INR)", "Receipt no", "Note", "Recorded by", "Recorded at"]
+const HEADER = ["Payment date", "Client", "Client GSTIN", "Invoice no", "Invoice date", "Mode", "Reference", "Received (INR)", "TDS (INR)", "TDS section", "Settled (INR)", "Receipt no", "Note", "Recorded by", "Recorded at"]
 
 const stamp = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
 const recordedAt = (iso: string) => stamp.format(new Date(iso)).replace(",", "")
@@ -36,16 +37,16 @@ export async function GET(request: Request) {
       let cursor: string | undefined
       try {
         do {
-          const page = await listPayments(db, filters, { cursor, limit: 1000 })
+          const page = await listPayments(db, { ...filters, hasTds: filters.tds }, { cursor, limit: 1000 })
           let chunk = ""
           for (const p of page.payments) {
-            chunk += csvRow([p.paidOn, p.clientName, p.clientGstin, p.invoiceNumber, p.invoiceDate, MODE_LABEL[p.mode], p.reference, csvAmount(p.amount), p.receiptNumber, p.note, p.createdBy === user.id ? user.name : "", recordedAt(p.createdAt)])
+            chunk += csvRow([p.paidOn, p.clientName, p.clientGstin, p.invoiceNumber, p.invoiceDate, MODE_LABEL[p.mode], p.reference, csvAmount(p.amount), csvAmount(p.tdsPaise), p.tdsSection ? tdsLabel(p.tdsSection) : "", csvAmount(p.amount + p.tdsPaise), p.receiptNumber, p.note, p.createdBy === user.id ? user.name : "", recordedAt(p.createdAt)])
           }
           rows += page.payments.length
           controller.enqueue(encoder.encode(chunk))
           cursor = page.next ?? undefined
         } while (cursor)
-        await noteExport(db, "payments.exported", { filters: { from: filters.from, to: filters.to, clients: filters.clients, modes: filters.modes, q: filters.q }, rows })
+        await noteExport(db, "payments.exported", { filters: { from: filters.from, to: filters.to, clients: filters.clients, modes: filters.modes, q: filters.q, tds: filters.tds }, rows })
         controller.close()
       } catch (error) {
         console.error("[export] payments export failed:", error instanceof Error ? error.message : error)

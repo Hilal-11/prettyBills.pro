@@ -1,5 +1,6 @@
 import type { StatementData } from "@/components/clients/statement-document"
 import { requireUserId } from "@/lib/auth/user"
+import { STATEMENT_KIND } from "@/lib/billing/ledger"
 import { BOM, csvAmount, csvRow } from "@/lib/billing/csv"
 import { todayIST } from "@/lib/billing/dates"
 import { statementPeriod } from "@/lib/billing/filters"
@@ -50,8 +51,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
     let body = BOM + csvRow(["Date", "Type", "Number", "Description", "Debit (INR)", "Credit (INR)", "Balance (INR)"])
     body += csvRow([from, "Opening balance", "", "", "", "", csvAmount(statement.opening)])
-    for (const r of statement.rows) body += csvRow([r.date, r.kind === "invoice" ? "Invoice" : "Payment", r.number, r.description, r.debit ? csvAmount(r.debit) : "", r.credit ? csvAmount(r.credit) : "", csvAmount(r.balance)])
-    body += csvRow([to, "Closing balance", "", "", csvAmount(statement.invoiced), csvAmount(statement.received), csvAmount(statement.closing)])
+    for (const r of statement.rows) body += csvRow([r.date, STATEMENT_KIND[r.kind], r.number, r.description, r.debit ? csvAmount(r.debit) : "", r.credit ? csvAmount(r.credit) : "", csvAmount(r.balance)])
+    body += csvRow([to, "Closing balance", "", "", csvAmount(statement.invoiced), csvAmount(statement.received + statement.tds), csvAmount(statement.closing)])
     return new Response(body, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="${base}.csv"`, "cache-control": "no-store" } })
   } catch (error) {
     if (error instanceof Error && !("status" in error)) return json({ error: error.message }, 500)

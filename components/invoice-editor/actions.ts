@@ -1,5 +1,6 @@
 "use client"
 
+import { quoteWhatsappText } from "@/lib/billing/quotes"
 import { formatDate, pdfFilename } from "@/lib/invoice/format"
 import { formatMoney, type Totals } from "@/lib/invoice/totals"
 import type { Invoice } from "@/lib/invoice/types"
@@ -53,19 +54,36 @@ export async function printPdf(invoice: Invoice) {
   }
 }
 
-export async function shareLink(invoice: Invoice, active?: boolean) {
-  const res = await fetch(`/api/invoices/${invoice.id}/share`, {
+/**
+ * The public link. Invoices: /i/<token>. Quotes and proformas: /q/<token>,
+ * and sharing a draft quote sends it (`quoteKey` is its first-save key).
+ * `active` alone just turns the link on or off.
+ */
+export async function shareLink(invoice: Invoice, active?: boolean, opts: { quoteKey?: string; via?: "link" | "whatsapp" } = {}) {
+  const quote = invoice.quote
+  const res = await fetch(quote ? `/api/quotes/${invoice.id}/share` : `/api/invoices/${invoice.id}/share`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ invoice, active }),
+    body: JSON.stringify(quote ? (typeof active === "boolean" ? { active } : { invoice, kind: quote.kind, key: opts.quoteKey, via: opts.via ?? "link" }) : { invoice, active }),
   })
   if (!res.ok) throw new Error(await errorOf(res))
-  return (await res.json()) as { token: string; url: string; active: boolean }
+  return (await res.json()) as { token: string; url: string; active: boolean; quote?: Record<string, unknown> }
 }
 
 export function whatsappUrl(invoice: Invoice, totals: Totals, link: string) {
   const digits = (invoice.billTo.phone ?? "").replace(/\D/g, "")
   const phone = digits.length === 10 ? `91${digits}` : digits
+  if (invoice.quote) {
+    const text = quoteWhatsappText({
+      kind: invoice.quote.kind,
+      clientName: invoice.billTo.name,
+      number: invoice.revision > 1 ? `${invoice.number} (Rev ${invoice.revision})` : invoice.number,
+      amount: formatMoney(totals.total, { whole: true }),
+      validUntil: invoice.quote.validUntil ? formatDate(invoice.quote.validUntil, invoice.dateFormat) : null,
+      link,
+    })
+    return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`
+  }
   const text = `Hi ${invoice.billTo.name}, here's invoice ${invoice.number} for ${formatMoney(totals.balanceDue, { whole: true })}, due ${formatDate(invoice.dueDate, invoice.dateFormat)}: ${link}`
   return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`
 }
@@ -81,16 +99,16 @@ export type SendPayload = {
   copyMe: boolean
 }
 
-export async function sendInvoice(invoice: Invoice, payload: SendPayload) {
-  const res = await fetch(`/api/invoices/${invoice.id}/send`, {
+export async function sendInvoice(invoice: Invoice, payload: SendPayload, opts: { quoteKey?: string } = {}) {
+  const res = await fetch(invoice.quote ? `/api/quotes/${invoice.id}/send` : `/api/invoices/${invoice.id}/send`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ invoice, ...payload }),
+    body: JSON.stringify({ invoice, ...payload, ...(invoice.quote ? { kind: invoice.quote.kind, key: opts.quoteKey } : {}) }),
   })
   if (!res.ok) {
     // 402: not in the plan; the error carries where to upgrade
     const data = (await res.json().catch(() => null)) as { error?: string; upgrade?: string } | null
     throw Object.assign(new Error(data?.error ?? `Request failed (${res.status})`), { upgrade: data?.upgrade })
   }
-  return (await res.json()) as { ok: true; delivered: boolean; sentAt: string; status: Invoice["status"]; publicToken?: string; summary: string }
+  return (await res.json()) as { ok: true; delivered: boolean; sentAt: string; status: Invoice["status"]; publicToken?: string; summary: string; quote?: Record<string, unknown> | null }
 }

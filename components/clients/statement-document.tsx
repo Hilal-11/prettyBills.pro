@@ -2,7 +2,7 @@ import type { CSSProperties } from "react"
 import { cn } from "cn"
 
 import { formatDate } from "@/lib/billing/dates"
-import type { Statement } from "@/lib/billing/ledger"
+import { STATEMENT_KIND, type Statement } from "@/lib/billing/ledger"
 import { formatINR } from "@/lib/billing/money"
 import type { Client } from "@/lib/invoice/defaults"
 import { stateLabel } from "@/lib/invoice/config"
@@ -41,18 +41,20 @@ export function StatementDocument({ data }: { data: StatementData }) {
           <Party title="To" name={client.name} gstin={client.gstin} address={client.address} email={client.email} phone={client.phone} />
         </div>
 
-        <dl className={cn("mt-[2em] grid grid-cols-4 overflow-hidden rounded-[0.5em] border border-(--rule) text-[0.9em]", numeric)}>
+        {/* TDS only appears when the client deducted some */}
+        <dl className={cn("mt-[2em] grid overflow-hidden rounded-[0.5em] border border-(--rule) text-[0.9em]", s.tds ? "grid-cols-5" : "grid-cols-4", numeric)}>
           {(
             [
               ["Opening balance", s.opening],
               ["Invoiced", s.invoiced],
               ["Received", s.received],
+              ...(s.tds ? ([["TDS deducted", s.tds]] as const) : []),
               ["Closing balance", s.closing],
             ] as const
-          ).map(([k, v], i) => (
-            <div key={k} className={cn("px-[1em] py-[0.8em]", i > 0 && "border-l border-(--rule)", i === 3 && "bg-[#f6f7f9]")}>
+          ).map(([k, v], i, all) => (
+            <div key={k} className={cn("px-[1em] py-[0.8em]", i > 0 && "border-l border-(--rule)", i === all.length - 1 && "bg-[#f6f7f9]")}>
               <dt className="text-(--muted)">{k}</dt>
-              <dd className={cn("mt-[0.1em] font-semibold", i === 3 && "text-[1.15em] font-bold")}>{formatINR(v)}</dd>
+              <dd className={cn("mt-[0.1em] font-semibold", i === all.length - 1 && "text-[1.15em] font-bold")}>{formatINR(v)}</dd>
             </div>
           ))}
         </dl>
@@ -80,7 +82,7 @@ export function StatementDocument({ data }: { data: StatementData }) {
             {s.rows.map((r) => (
               <tr key={`${r.kind}-${r.id}`} className="border-b border-(--rule) align-top">
                 <td className="py-[0.5em]">{formatDate(r.date)}</td>
-                <td className="py-[0.5em]">{r.kind === "invoice" ? "Invoice" : "Payment"}</td>
+                <td className="py-[0.5em]">{STATEMENT_KIND[r.kind]}</td>
                 <td className="py-[0.5em]">{r.number}</td>
                 <td className="py-[0.5em] pr-[1em] text-(--muted)">{r.description}</td>
                 <td className="py-[0.5em] text-right">{r.debit ? formatINR(r.debit) : ""}</td>

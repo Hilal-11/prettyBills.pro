@@ -96,19 +96,21 @@ export async function deleteClient(db: SupabaseClient, id: string) {
 export async function listClientsWithStats(db: SupabaseClient): Promise<ClientWithStats[]> {
   const [clients, invoices] = await Promise.all([
     db.from("clients").select(CLIENT_COLUMNS).order("name"),
-    db.from("invoices").select("client_id, client_name, status, total, amount_paid, balance_due, due_date, issue_date").neq("status", "draft").neq("status", "void"),
+    db.from("invoices").select("client_id, client_name, status, total, amount_paid, tds_paise, balance_due, due_date, issue_date").neq("status", "draft").neq("status", "void"),
   ])
   if (clients.error) throw new DbError(clients.error)
   if (invoices.error) throw new DbError(invoices.error)
 
   const on = today()
-  const stats = new Map<string, { invoices: number; billed: number; received: number; outstanding: number; overdue: number; last: string | null }>()
-  for (const i of invoices.data as { client_id: string | null; status: string; total: number; amount_paid: number; balance_due: number; due_date: string | null; issue_date: string }[]) {
+  const stats = new Map<string, { invoices: number; billed: number; received: number; tds: number; outstanding: number; overdue: number; last: string | null }>()
+  for (const i of invoices.data as { client_id: string | null; status: string; total: number; amount_paid: number; tds_paise: number; balance_due: number; due_date: string | null; issue_date: string }[]) {
     if (!i.client_id) continue
-    const s = stats.get(i.client_id) ?? { invoices: 0, billed: 0, received: 0, outstanding: 0, overdue: 0, last: null }
+    const s = stats.get(i.client_id) ?? { invoices: 0, billed: 0, received: 0, tds: 0, outstanding: 0, overdue: 0, last: null }
     s.invoices++
     s.billed += Number(i.total)
-    s.received += Number(i.amount_paid)
+    // amount_paid is what's settled (received + TDS)
+    s.received += Number(i.amount_paid) - Number(i.tds_paise ?? 0)
+    s.tds += Number(i.tds_paise ?? 0)
     if (i.status !== "paid") s.outstanding += Number(i.balance_due)
     if (bucketOf(i.status, i.due_date, Number(i.balance_due), on) === "overdue") s.overdue += Number(i.balance_due)
     if (!s.last || i.issue_date > s.last) s.last = i.issue_date
@@ -117,7 +119,7 @@ export async function listClientsWithStats(db: SupabaseClient): Promise<ClientWi
 
   return (clients.data as ClientRow[]).map((r) => {
     const s = stats.get(r.id)
-    return { ...toClient(r), invoices: s?.invoices ?? 0, billed: s?.billed ?? 0, received: s?.received ?? 0, outstanding: s?.outstanding ?? 0, overdue: s?.overdue ?? 0, lastInvoiceDate: s?.last ?? null, updatedAt: r.updated_at }
+    return { ...toClient(r), invoices: s?.invoices ?? 0, billed: s?.billed ?? 0, received: s?.received ?? 0, tds: s?.tds ?? 0, outstanding: s?.outstanding ?? 0, overdue: s?.overdue ?? 0, lastInvoiceDate: s?.last ?? null, updatedAt: r.updated_at }
   })
 }
 

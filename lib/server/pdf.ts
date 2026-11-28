@@ -103,3 +103,9 @@ async function renderA4(url: string, token: string) {
     await dropPrintJob(token).catch(() => {})
   }
 }
+
+/** A credit note as an A4 PDF (same headless pipeline as receipts). */
+export async function renderCreditNotePdf(note: unknown, origin: string): Promise<Uint8Array> {
+  const token = await putJob("credit-note", note)
+  return renderA4(`${origin}/print/credit-note/${token}`, token)
+}
